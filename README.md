@@ -32,6 +32,7 @@ X1 EcoChain BOT is an automated tool designed to streamline onchain operations a
 - 🌐 **Flexible Proxy Support** - Run with or without proxy configuration
 - 🔀 **Smart Proxy Rotation** - Automatic rotation of invalid proxies
 - 🚰 **Claim Test Token** - Automated claim daily XIT Faucet
+- 💸 **Send to Friends** - Automated transfer X1T token to random recepient
 - ⏰ **Daily Check-In** – Automated perform daily check-in
 - 📜 **Quests Completion** – Automated complete available quests
 - 👥 **Multi-Account Support** - Manage multiple accounts simultaneously
@@ -40,7 +41,7 @@ X1 EcoChain BOT is an automated tool designed to streamline onchain operations a
 
 - **Python:** Version 3.9 or higher
 - **pip:** Latest version recommended
-- **Compatible libraries:** eth-account and eth-utils(see requirements.txt)
+- **Compatible libraries:** web3, eth-account and eth-utils(see requirements.txt)
 
 ## 🛠 Installation
 

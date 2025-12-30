@@ -1,3 +1,8 @@
+from web3 import Web3
+from web3.exceptions import TransactionNotFound
+from eth_utils import to_hex
+from eth_account import Account
+from eth_account.messages import encode_defunct
 from aiohttp import (
     ClientResponseError,
     ClientSession,
@@ -7,22 +12,27 @@ from aiohttp import (
 from aiohttp_socks import ProxyConnector
 from fake_useragent import FakeUserAgent
 from eth_account import Account
-from eth_account.messages import encode_defunct
-from eth_utils import to_hex
 from datetime import datetime
 from colorama import *
-import asyncio, json, re, os, pytz
+import asyncio, random, secrets, json, re, os, pytz
 
 wib = pytz.timezone('Asia/Jakarta')
 
 class X1:
     def __init__(self) -> None:
         self.BASE_API = "https://tapi.kod.af"
+        self.RPC_URL = "https://maculatus-rpc.x1eco.com/"
+        self.EXPLORER = "https://maculatus-scan.x1eco.com/tx/"
         self.HEADERS = {}
         self.proxies = []
         self.proxy_index = 0
         self.account_proxies = {}
         self.access_tokens = {}
+        self.auto_transfer = False
+        self.transfer_count = 0
+        self.transfer_amount = 0
+        self.min_delay = 0
+        self.max_delay = 0
 
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -122,6 +132,17 @@ class X1:
             return address
         except Exception as e:
             return None
+        
+    def generate_random_recepient(self):
+        try:
+            private_key_bytes = secrets.token_bytes(32)
+            private_key_hex = to_hex(private_key_bytes)
+            account = Account.from_key(private_key_hex)
+            recepient = account.address
+            
+            return recepient
+        except Exception as e:
+            return None
     
     def generate_signature(self, account: str):
         try:
@@ -140,8 +161,180 @@ class X1:
             return mask_account
         except Exception as e:
             return None
+        
+    async def get_web3_with_check(self, address: str, use_proxy: bool, retries=3, timeout=60):
+        request_kwargs = {"timeout": timeout}
+
+        proxy = self.get_next_proxy_for_account(address) if use_proxy else None
+
+        if use_proxy and proxy:
+            request_kwargs["proxies"] = {"http": proxy, "https": proxy}
+
+        for attempt in range(retries):
+            try:
+                web3 = Web3(Web3.HTTPProvider(self.RPC_URL, request_kwargs=request_kwargs))
+                web3.eth.get_block_number()
+                return web3
+            except Exception as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(3)
+                    continue
+                raise Exception(f"Failed to Connect to RPC: {str(e)}")
+        
+    async def get_token_balance(self, address: str, use_proxy: bool):
+        try:
+            web3 = await self.get_web3_with_check(address, use_proxy)
+
+            balance = web3.eth.get_balance(address)
+            token_balance = balance / (10 ** 18)
+
+            return token_balance
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+        
+    async def send_raw_transaction_with_retries(self, account, web3, tx, retries=5):
+        for attempt in range(retries):
+            try:
+                signed_tx = web3.eth.account.sign_transaction(tx, account)
+                raw_tx = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                tx_hash = web3.to_hex(raw_tx)
+                return tx_hash
+            except TransactionNotFound:
+                pass
+            except Exception as e:
+                self.log(
+                    f"{Fore.BLUE + Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW + Style.BRIGHT} [Attempt {attempt + 1}] Send TX Error: {str(e)} {Style.RESET_ALL}"
+                )
+            await asyncio.sleep(2 ** attempt)
+        raise Exception("Transaction Hash Not Found After Maximum Retries")
+
+    async def wait_for_receipt_with_retries(self, web3, tx_hash, retries=5):
+        for attempt in range(retries):
+            try:
+                receipt = await asyncio.to_thread(web3.eth.wait_for_transaction_receipt, tx_hash, timeout=300)
+                return receipt
+            except TransactionNotFound:
+                pass
+            except Exception as e:
+                self.log(
+                    f"{Fore.BLUE + Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW + Style.BRIGHT} [Attempt {attempt + 1}] Wait for Receipt Error: {str(e)} {Style.RESET_ALL}"
+                )
+            await asyncio.sleep(2 ** attempt)
+        raise Exception("Transaction Receipt Not Found After Maximum Retries")
+
+    async def perform_transfer(self, account: str, address: str, recepient: str, use_proxy: bool):
+        try:
+            web3 = await self.get_web3_with_check(address, use_proxy)
+
+            amount_to_wei = web3.to_wei(self.transfer_amount, "ether")
+
+            max_priority_fee = web3.to_wei(1, "gwei")
+            max_fee = max_priority_fee
+            
+            transfer_tx = {
+                "from": web3.to_checksum_address(address),
+                "to": web3.to_checksum_address(recepient),
+                "value": amount_to_wei,
+                "gas": 21000,
+                "maxFeePerGas": int(max_fee),
+                "maxPriorityFeePerGas": int(max_priority_fee),
+                "nonce": web3.eth.get_transaction_count(address, "pending"),
+                "chainId": web3.eth.chain_id,
+            }
+
+            tx_hash = await self.send_raw_transaction_with_retries(account, web3, transfer_tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+            block_number = receipt.blockNumber
+
+            return tx_hash, block_number
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE + Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED + Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None, None
+        
+    async def print_timer(self):
+        for remaining in range(random.randint(self.min_delay, self.max_delay), 0, -1):
+            print(
+                f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
+                f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
+                f"{Fore.BLUE + Style.BRIGHT}Wait For{Style.RESET_ALL}"
+                f"{Fore.WHITE + Style.BRIGHT} {remaining} {Style.RESET_ALL}"
+                f"{Fore.BLUE + Style.BRIGHT}Seconds For Next Tx...{Style.RESET_ALL}",
+                end="\r",
+                flush=True
+            )
+            await asyncio.sleep(1)
+
+    def print_transfer_question(self):
+        while True:
+            try:
+                transfer_count = int(input(f"{Fore.YELLOW + Style.BRIGHT}Enter Transfer Count -> {Style.RESET_ALL}").strip())
+                if transfer_count > 0:
+                    self.transfer_count = transfer_count
+                    break
+                else:
+                    print(f"{Fore.RED + Style.BRIGHT}Count must be greater than 0.{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
+
+        while True:
+            try:
+                transfer_amount = float(input(f"{Fore.YELLOW + Style.BRIGHT}Enter Transfer Amount -> {Style.RESET_ALL}").strip())
+                if transfer_amount > 0:
+                    self.transfer_amount = transfer_amount
+                    break
+                else:
+                    print(f"{Fore.RED + Style.BRIGHT}Amount must be greater than 0.{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a float or decimal number.{Style.RESET_ALL}")
+
+    def print_delay_question(self):
+        while True:
+            try:
+                min_delay = int(input(f"{Fore.YELLOW + Style.BRIGHT}Min Delay Each Tx -> {Style.RESET_ALL}").strip())
+                if min_delay >= 0:
+                    self.min_delay = min_delay
+                    break
+                else:
+                    print(f"{Fore.RED + Style.BRIGHT}Min Delay must be >= 0.{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
+
+        while True:
+            try:
+                max_delay = int(input(f"{Fore.YELLOW + Style.BRIGHT}Max Delay Each Tx -> {Style.RESET_ALL}").strip())
+                if max_delay >= min_delay:
+                    self.max_delay = max_delay
+                    break
+                else:
+                    print(f"{Fore.RED + Style.BRIGHT}Min Delay must be >= Min Delay.{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
 
     def print_question(self):
+        while True:
+            auto_transfer = input(f"{Fore.BLUE + Style.BRIGHT}Auto Send X1T Tokens? [y/n] -> {Style.RESET_ALL}").strip()
+            
+            if auto_transfer in ["y", "n"]:
+                auto_transfer = auto_transfer == "y"
+
+                if auto_transfer:
+                    self.print_transfer_question()
+                    self.print_delay_question()
+
+                self.auto_transfer = auto_transfer
+                break
+            else:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter 'y' or 'n'.{Style.RESET_ALL}")
+
         while True:
             try:
                 print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Proxy{Style.RESET_ALL}")
@@ -258,10 +451,11 @@ class X1:
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
                     async with session.get(url=url, headers=headers, params=params, proxy=proxy, proxy_auth=proxy_auth) as response:
-                        if response.status == 500:
+                        if not response.ok:
+                            resp_text = await response.text()
                             self.log(
                                 f"{Fore.CYAN+Style.BRIGHT}Faucet  :{Style.RESET_ALL}"
-                                f"{Fore.YELLOW+Style.BRIGHT} Already Requested {Style.RESET_ALL}"
+                                f"{Fore.YELLOW+Style.BRIGHT} {resp_text} {Style.RESET_ALL}"
                             )
                             return None
                         response.raise_for_status()
@@ -361,6 +555,31 @@ class X1:
                 return False
 
             return True
+        
+    async def process_perform_transfer(self, account: str, address: str, recepient: str, use_proxy: bool):
+        tx_hash, block_number = await self.perform_transfer(account, address, recepient, use_proxy)
+        if tx_hash and block_number:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {self.EXPLORER}{tx_hash} {Style.RESET_ALL}"
+            )
+        else:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} Perform On-Chain Failed {Style.RESET_ALL}"
+            )
     
     async def process_auth_login(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
         is_valid = await self.process_check_connection(address, use_proxy, rotate_proxy)
@@ -402,9 +621,53 @@ class X1:
                     f"{Fore.GREEN+Style.BRIGHT} Requested Successfully {Style.RESET_ALL}"
                 )
 
+            if self.auto_transfer:
+                self.log(f"{Fore.CYAN+Style.BRIGHT}Transfer:{Style.RESET_ALL}")
+                for i in range(self.transfer_count):
+                    self.log(
+                        f"{Fore.GREEN+Style.BRIGHT} ● {Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT}{i+1}{Style.RESET_ALL}"
+                        f"{Fore.MAGENTA+Style.BRIGHT} Of {Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT}{self.transfer_count}{Style.RESET_ALL}                                   "
+                    )
+
+                    recepient = self.generate_random_recepient()
+                    self.log(
+                        f"{Fore.BLUE+Style.BRIGHT}   Recepient:{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} {recepient} {Style.RESET_ALL}"
+                    )
+
+                    self.log(
+                        f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} {self.transfer_amount} X1T {Style.RESET_ALL}"
+                    )
+
+                    balance = await self.get_token_balance(address, use_proxy)
+                    self.log(
+                        f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
+                    )
+
+                    if balance is None:
+                        self.log(
+                            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                            f"{Fore.YELLOW+Style.BRIGHT} Fetch X1T Token Balance Failed {Style.RESET_ALL}"
+                        )
+                        continue
+
+                    if balance < self.transfer_amount:
+                        self.log(
+                            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                            f"{Fore.YELLOW+Style.BRIGHT} Insufficient X1T Token Balance {Style.RESET_ALL}"
+                        )
+                        return
+
+                    await self.process_perform_transfer(account, address, recepient, use_proxy)
+                    await self.print_timer()
+
             quests = await self.quest_list(address, proxy)
             if quests:
-                self.log(f"{Fore.CYAN + Style.BRIGHT}Quests  :{Style.RESET_ALL}")
+                self.log(f"{Fore.CYAN + Style.BRIGHT}Quests  :{Style.RESET_ALL}                                   ")
 
                 for quest in quests:
                     quest_id = quest.get("id")
