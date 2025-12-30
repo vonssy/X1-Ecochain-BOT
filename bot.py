@@ -660,7 +660,7 @@ class X1:
                             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
                             f"{Fore.YELLOW+Style.BRIGHT} Insufficient X1T Token Balance {Style.RESET_ALL}"
                         )
-                        return
+                        break
 
                     await self.process_perform_transfer(account, address, recepient, use_proxy)
                     await self.print_timer()
