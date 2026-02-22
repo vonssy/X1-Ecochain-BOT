@@ -25,7 +25,7 @@ class X1:
     def __init__(self) -> None:
         self.API_URL = {
             "testnet": "https://testnet-api.x1eco.com",
-            "nft": "https://nft-api.x1.one",
+            "nft": "https://nft-api.x1eco.com",
             "dex": "https://ms.kod.af",
             "rpc": "https://maculatus-rpc.x1eco.com/",
             "explorer": "https://maculatus-scan.x1eco.com/tx/",
