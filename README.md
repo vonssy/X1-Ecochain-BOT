@@ -34,7 +34,7 @@ X1 EcoChain BOT is an automated tool designed to streamline onchain operations a
 - 🚰 **Claim Test Token** - Automated claim daily XIT Faucet
 - 💸 **Send Test Tokens** - Automated transfer X1T token to random recipient
 - 🔁 **Swap Test Tokens** - Automated swap X1T token to USDT token
-- 🔁 **Add Liquidity** - Automated add Liquidity pools
+- 💧 **Add Liquidity** - Automated add Liquidity pools
 - ⏰ **Daily Check-In** – Automated perform daily check-in
 - 📜 **Quests Completion** – Automated complete available quests
 - 👥 **Multi-Account Support** - Manage multiple accounts simultaneously
