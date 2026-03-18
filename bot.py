@@ -645,7 +645,7 @@ class X1:
 
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.GREEN+Style.BRIGHT} Token Approved {Style.RESET_ALL}                                   "
+                    f"{Fore.GREEN+Style.BRIGHT} Token Approved {Style.RESET_ALL}"
                 )
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
@@ -1140,15 +1140,19 @@ class X1:
         return True
     
     async def process_perform_transfer(self, private_key: str, address: str):
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Token    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} X1T {Style.RESET_ALL}"
+        )
         recipient = self.generate_random_recipient()
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Recipient:{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {recipient} {Style.RESET_ALL}                                   "
+            f"{Fore.WHITE+Style.BRIGHT} {recipient} {Style.RESET_ALL}"
         )
         balance = await self.get_token_balance(address)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}                                   "
+            f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
         )
 
         if balance is None:
@@ -1161,7 +1165,7 @@ class X1:
         amount = Decimal(str(balance)) * self.SEND_PERCENT / Decimal(100)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SEND_PERCENT}%) {Style.RESET_ALL}                                   "
+            f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SEND_PERCENT}%) {Style.RESET_ALL}"
         )
 
         transfer = await self.perform_transfer(private_key, address, recipient, amount)
@@ -1173,7 +1177,7 @@ class X1:
 
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}                                   "
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
         )
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
@@ -1193,13 +1197,18 @@ class X1:
         return True
     
     async def process_perform_swap(self, private_key: str, address: str, proxy_url=None):
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Pairs    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} X1T to USDT {Style.RESET_ALL}"
+        )
+
         pools = await self.pool_by_tokens(address, proxy_url)
         if not pools: return False
 
         balance = await self.get_token_balance(address)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}                                   "
+            f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
         )
 
         if balance is None:
@@ -1212,7 +1221,7 @@ class X1:
         amount = Decimal(str(balance)) * self.SWAP_PERCENT / Decimal(100)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SWAP_PERCENT}%) {Style.RESET_ALL}                                   "
+            f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SWAP_PERCENT}%) {Style.RESET_ALL}"
         )
 
         swap = await self.perform_swap(private_key, address, pools, amount)
@@ -1224,7 +1233,7 @@ class X1:
 
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}                                   "
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
         )
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
@@ -1244,10 +1253,15 @@ class X1:
         return True
     
     async def process_perform_add_liquidity(self, private_key: str, address: str, proxy_url=None):
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Pools    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} X1T/USDT {Style.RESET_ALL}"
+        )
+
         pools = await self.pool_by_tokens(address, proxy_url)
         if not pools: return False
 
-        self.log(f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}                                   ")
+        self.log(f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}")
 
         x1t_balance = await self.get_token_balance(address)
         self.log(
@@ -1297,7 +1311,7 @@ class X1:
 
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}                                   "
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
         )
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
