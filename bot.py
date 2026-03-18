@@ -31,8 +31,9 @@ class X1:
             "explorer": "https://maculatus-scan.x1eco.com/tx/",
         }
 
-        self.SEND_AMOUNT = Decimal(os.getenv("SEND_AMOUNT") or "1")
-        self.SWAP_AMOUNT = Decimal(os.getenv("SWAP_AMOUNT") or "1")
+        self.SEND_PERCENT = Decimal(os.getenv("SEND_PERCENT", "50"))
+        self.SWAP_PERCENT = Decimal(os.getenv("SWAP_PERCENT", "50"))
+        self.LIQUIDITY_AMOUNT = Decimal(os.getenv("LIQUIDITY_AMOUNT", "1"))
 
         self.CONTRACT_ADDRESS = {
             "WX1T": "0xe2ED17Ae5e68863E77899205a83A8f1E138c608f",
@@ -40,13 +41,55 @@ class X1:
         }
 
         self.CONTRACT_ROUTER = {
-            "swap": "0x1BEC6C32bAA0881EA3f3Ec5e95d10EF8a252589B"
+            "swap": "0x1BEC6C32bAA0881EA3f3Ec5e95d10EF8a252589B",
+            "mint": "0x4505eEA72B4D215284305d794CCAc618cd5eA531"
         }
 
-        self.UNISWAP_V3_ABI = [
+        self.CONTRACT_ABI = [
             {
+                "type": "function",
+                "name": "balanceOf",
+                "stateMutability": "view",
+                "inputs": [
+                    { "internalType": "address", "name": "account", "type": "address" }
+                ],
+                "outputs": [
+                    { "internalType": "uint256", "name": "", "type": "uint256" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "allowance",
+                "stateMutability": "view",
+                "inputs": [
+                    { "internalType": "address", "name": "owner",   "type": "address" },
+                    { "internalType": "address", "name": "spender", "type": "address" }
+                ],
+                "outputs": [
+                    { "internalType": "uint256", "name": "", "type": "uint256" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "approve",
+                "stateMutability": "nonpayable",
+                "inputs": [
+                    { "internalType": "address", "name": "spender", "type": "address"  },
+                    { "internalType": "uint256", "name": "value",   "type": "uint256" }
+                ],
+                "outputs": [
+                    { "internalType": "bool", "name": "", "type": "bool" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "exactInputSingle",
+                "stateMutability": "payable",
                 "inputs": [
                     {
+                        "internalType": "struct ISwapRouter.ExactInputSingleParams",
+                        "name": "params",
+                        "type": "tuple",
                         "components": [
                             { "internalType": "address", "name": "tokenIn", "type": "address" }, 
                             { "internalType": "address", "name": "tokenOut", "type": "address" }, 
@@ -56,18 +99,43 @@ class X1:
                             { "internalType": "uint256", "name": "amountIn", "type": "uint256" }, 
                             { "internalType": "uint256", "name": "amountOutMinimum", "type": "uint256" }, 
                             { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
-                        ],
-                        "internalType": "struct ISwapRouter.ExactInputSingleParams",
-                        "name": "params",
-                        "type": "tuple"
+                        ]
                     }
                 ],
-                "name": "exactInputSingle",
                 "outputs": [
                     { "internalType": "uint256", "name": "amountOut", "type": "uint256" }
-                ],
+                ]
+            },
+            {
+                "type": "function",
+                "name": "mint",
                 "stateMutability": "payable",
-                "type": "function"
+                "inputs": [
+                    {
+                        "internalType": "tuple",
+                        "name": "params",
+                        "type": "tuple",
+                        "components": [
+                            { "internalType": "address", "name": "token0", "type": "address" },
+                            { "internalType": "address", "name": "token1", "type": "address" },
+                            { "internalType": "uint24", "name": "fee", "type": "uint24" },
+                            { "internalType": "int24", "name": "tickLower", "type": "int24" },
+                            { "internalType": "int24", "name": "tickUpper", "type": "int24" },
+                            { "internalType": "uint256", "name": "amount0Desired", "type": "uint256" },
+                            { "internalType": "uint256", "name": "amount1Desired", "type": "uint256" },
+                            { "internalType": "uint256", "name": "amount0Min", "type": "uint256" },
+                            { "internalType": "uint256", "name": "amount1Min", "type": "uint256" },
+                            { "internalType": "address", "name": "recipient", "type": "address" },
+                            { "internalType": "uint256", "name": "deadline", "type": "uint256" }
+                        ]
+                    }
+                ],
+                "outputs": [
+                    { "internalType": "uint256", "name": "tokenId", "type": "uint256" },
+                    { "internalType": "uint128", "name": "liquidity", "type": "uint128" },
+                    { "internalType": "uint256", "name": "amount0", "type": "uint256" },
+                    { "internalType": "uint256", "name": "amount1", "type": "uint256" }
+                ]
             }
         ]
 
@@ -297,18 +365,28 @@ class X1:
                     continue
                 raise Exception(f"Failed to Connect to RPC: {str(e)}")
 
-    async def get_token_balance(self, address: str):
+    async def get_token_balance(self, address: str, asset=None):
         try:
             web3 = await self.get_web3_with_check(address)
 
-            raw_balance = await asyncio.to_thread(
-                web3.eth.get_balance,
-                address
-            )
+            if asset is None:
+                balance = await asyncio.to_thread(
+                    web3.eth.get_balance,
+                    address
+                )
+            else:
+                contract_address = web3.to_checksum_address(asset)
+                token_contract = web3.eth.contract(
+                    address=contract_address,
+                    abi=self.CONTRACT_ABI
+                )
 
-            token_balance = raw_balance / (10**18)
+                balance = await asyncio.to_thread(
+                    token_contract.functions.balanceOf(address).call
+                )
 
-            return token_balance
+            return web3.from_wei(balance, "ether")
+
         except Exception as e:
             self.log(
                 f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
@@ -356,11 +434,11 @@ class X1:
             await asyncio.sleep(2 ** attempt)
         raise Exception("Transaction Receipt Not Found After Maximum Retries")
     
-    async def perform_transfer(self, private_key: str, address: str, recipient: str):
+    async def perform_transfer(self, private_key: str, address: str, recipient: str, amount: Decimal):
         try:
             web3 = await self.get_web3_with_check(address)
 
-            amount_to_wei = web3.to_wei(self.SEND_AMOUNT, "ether")
+            amount_to_wei = web3.to_wei(amount, "ether")
 
             latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
             base_fee = latest_block["baseFeePerGas"]
@@ -383,7 +461,7 @@ class X1:
                 "gas": 21000,
                 "maxFeePerGas": int(max_fee),
                 "maxPriorityFeePerGas": int(max_priority_fee),
-                "nonce":nonce,
+                "nonce": nonce,
                 "chainId": chain_id,
             }
 
@@ -436,7 +514,7 @@ class X1:
         except Exception as e:
             raise Exception(f"Failed to Calculate Amount Out Min: {str(e)}")
         
-    async def perform_swap(self, private_key: str, address: str, pools: dict):
+    async def perform_swap(self, private_key: str, address: str, pools: dict, amount: Decimal):
         try:
             web3 = await self.get_web3_with_check(address)
 
@@ -446,7 +524,7 @@ class X1:
 
             deadline = int(time.time()) + 600
 
-            amount_in = web3.to_wei(self.SWAP_AMOUNT, "ether")
+            amount_in = web3.to_wei(amount, "ether")
 
             amount_out_min_wei = self.calc_amount_out_min(pools, "WX1T", amount_in)
 
@@ -461,7 +539,7 @@ class X1:
                 "sqrtPriceLimitX96": 0
             }
 
-            router_contract = web3.eth.contract(address=router, abi=self.UNISWAP_V3_ABI)
+            router_contract = web3.eth.contract(address=router, abi=self.CONTRACT_ABI)
             
             swap_func = router_contract.functions.exactInputSingle(swap_params)
 
@@ -501,6 +579,176 @@ class X1:
             )
 
             tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, swap_tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+
+            return {
+                "tx_hash": tx_hash, 
+                "block_number": receipt.blockNumber
+            }
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+        
+    async def approving_token(self, private_key: str, address: str, asset: str, spender: str, amount_to_wei: int):
+        try:
+            web3 = await self.get_web3_with_check(address)
+            
+            token_contract = web3.eth.contract(address=asset, abi=self.CONTRACT_ABI)
+            allowance = await asyncio.to_thread(
+                token_contract.functions.allowance(address, spender).call
+            )
+
+            if allowance < amount_to_wei:
+                approve_func = token_contract.functions.approve(spender, 2**256 - 1)
+
+                estimated_gas = await asyncio.to_thread(
+                    approve_func.estimate_gas,
+                    {
+                        "from": address
+                    }
+                )
+
+                latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+                base_fee = latest_block["baseFeePerGas"]
+
+                max_priority_fee = web3.to_wei(1, "gwei")
+                max_fee = base_fee + max_priority_fee
+
+                nonce = await asyncio.to_thread(
+                    web3.eth.get_transaction_count,
+                    address,
+                    "pending"
+                )
+
+                chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+
+                approve_tx = await asyncio.to_thread(
+                    approve_func.build_transaction,
+                    {
+                        "from": address,
+                        "gas": int(estimated_gas * 1.2),
+                        "maxFeePerGas": int(max_fee),
+                        "maxPriorityFeePerGas": int(max_priority_fee),
+                        "nonce": nonce,
+                        "chainId": chain_id,
+                    }
+                )
+
+                tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, approve_tx)
+                receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+
+                block_number = receipt.blockNumber
+                explorer = self.API_URL["explorer"]
+
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.GREEN+Style.BRIGHT} Token Approved {Style.RESET_ALL}                                   "
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+                    f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+                    f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+                    f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
+                )
+                
+                await asyncio.sleep(random.uniform(3.0, 5.0))
+
+            return True
+        except Exception as e:
+            raise Exception(f"Approving Token Contract Failed: {str(e)}")
+        
+    async def perform_add_liquidity(self, private_key: str, address: str, pools: dict, usdt_balance: float):
+        try:
+            web3 = await self.get_web3_with_check(address)
+
+            token0 = web3.to_checksum_address(self.CONTRACT_ADDRESS['USDT'])
+            token1 = web3.to_checksum_address(self.CONTRACT_ADDRESS['WX1T'])
+            router = web3.to_checksum_address(self.CONTRACT_ROUTER['mint'])
+
+            amount1_desired = web3.to_wei(self.LIQUIDITY_AMOUNT, "ether")
+
+            amount0_desired = self.calc_amount_out_min(pools, "WX1T", amount1_desired)
+            amount0_desired_from_wei = web3.from_wei(amount0_desired, "ether")
+
+            self.log(
+                f"{Fore.GREEN+Style.BRIGHT}      2. {Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT}{amount0_desired_from_wei} USDT{Style.RESET_ALL}"
+            )
+
+            if usdt_balance < amount0_desired_from_wei:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Insufficient USDT Token Balance {Style.RESET_ALL}"
+                )
+                return False
+
+            await self.approving_token(private_key, address, token0, router, amount0_desired)
+
+            deadline = int(time.time()) + 600
+
+            mint_params = {
+                "token0": token0,
+                "token1": token1,
+                "fee": 500,
+                "tickLower": -887270,
+                "tickUpper": 887270,
+                "amount0Desired": amount0_desired,
+                "amount1Desired": amount1_desired,
+                "amount0Min": 0,
+                "amount1Min": 0,
+                "recipient": address,
+                "deadline": deadline
+            }
+
+            router_contract = web3.eth.contract(address=router, abi=self.CONTRACT_ABI)
+            
+            mint_func = router_contract.functions.mint(mint_params)
+
+            estimated_gas = await asyncio.to_thread(
+                mint_func.estimate_gas,
+                {
+                    "from": address,
+                    "value": amount1_desired
+                }
+            )
+
+            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+            base_fee = latest_block["baseFeePerGas"]
+
+            max_priority_fee = web3.to_wei(1, "gwei")
+            max_fee = base_fee + max_priority_fee
+
+            nonce = await asyncio.to_thread(
+                web3.eth.get_transaction_count,
+                address,
+                "pending"
+            )
+
+            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+
+            mint_tx = await asyncio.to_thread(
+                mint_func.build_transaction,
+                {
+                    "from": address,
+                    "value": amount1_desired,
+                    "gas": int(estimated_gas * 1.2),
+                    "maxFeePerGas": int(max_fee),
+                    "maxPriorityFeePerGas": int(max_priority_fee),
+                    "nonce": nonce,
+                    "chainId": chain_id,
+                }
+            )
+
+            tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, mint_tx)
             receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
 
             return {
@@ -696,9 +944,29 @@ class X1:
 
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
                     async with session.get(url=url, headers=headers, params=params, proxy=proxy, proxy_auth=proxy_auth) as response:
-                        if response.status == 500: return True
+                        
+                        if response.status == 500:
+                            resp_text = await response.text()
+                            self.log(
+                                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                                f"{Fore.RED+Style.BRIGHT} {resp_text} {Style.RESET_ALL}"
+                            )
+                            self.log(
+                                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                                f"{Fore.YELLOW+Style.BRIGHT} Failed to Request Faucet {Style.RESET_ALL}"
+                            )
+
+                            if "Please try again later." in resp_text: return True
+
+                            return False
+                        
                         await self.ensure_ok(response)
-                        return await response.json()
+
+                        self.log(
+                            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                            f"{Fore.GREEN+Style.BRIGHT} Requested Successfully {Style.RESET_ALL}"
+                        )
+                        return True
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
@@ -867,21 +1135,7 @@ class X1:
         request = await self.request_faucet(address, proxy_url)
         if not request: return False
 
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-            f"{Fore.GREEN+Style.BRIGHT} Requested Successfully {Style.RESET_ALL}"
-        )
-
-        return True
-    
-    async def process_request_faucet(self, address: str, proxy_url=None):
-        request = await self.request_faucet(address, proxy_url)
-        if not request: return False
-
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-            f"{Fore.GREEN+Style.BRIGHT} Requested Successfully {Style.RESET_ALL}"
-        )
+        await asyncio.sleep(3)
 
         return True
     
@@ -891,11 +1145,6 @@ class X1:
             f"{Fore.BLUE+Style.BRIGHT}   Recipient:{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} {recipient} {Style.RESET_ALL}                                   "
         )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {self.SEND_AMOUNT} X1T {Style.RESET_ALL}                                   "
-        )
-
         balance = await self.get_token_balance(address)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
@@ -908,15 +1157,14 @@ class X1:
                 f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch X1T Token Balance {Style.RESET_ALL}"
             )
             return False
-        
-        if balance < self.SEND_AMOUNT:
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                f"{Fore.YELLOW+Style.BRIGHT} Insufficient X1T Token Balance {Style.RESET_ALL}"
-            )
-            return False
 
-        transfer = await self.perform_transfer(private_key, address, recipient)
+        amount = Decimal(str(balance)) * self.SEND_PERCENT / Decimal(100)
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SEND_PERCENT}%) {Style.RESET_ALL}                                   "
+        )
+
+        transfer = await self.perform_transfer(private_key, address, recipient, amount)
         if not transfer: return False
 
         block_number = transfer["block_number"]
@@ -940,16 +1188,13 @@ class X1:
             f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
         )
 
+        await asyncio.sleep(3)
+
         return True
     
     async def process_perform_swap(self, private_key: str, address: str, proxy_url=None):
         pools = await self.pool_by_tokens(address, proxy_url)
         if not pools: return False
-
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {self.SWAP_AMOUNT} X1T {Style.RESET_ALL}                                   "
-        )
 
         balance = await self.get_token_balance(address)
         self.log(
@@ -963,15 +1208,14 @@ class X1:
                 f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch X1T Token Balance {Style.RESET_ALL}"
             )
             return False
-        
-        if balance < self.SWAP_AMOUNT:
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                f"{Fore.YELLOW+Style.BRIGHT} Insufficient X1T Token Balance {Style.RESET_ALL}"
-            )
-            return False
 
-        swap = await self.perform_swap(private_key, address, pools)
+        amount = Decimal(str(balance)) * self.SWAP_PERCENT / Decimal(100)
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SWAP_PERCENT}%) {Style.RESET_ALL}                                   "
+        )
+
+        swap = await self.perform_swap(private_key, address, pools, amount)
         if not swap: return False
 
         block_number = swap["block_number"]
@@ -994,6 +1238,81 @@ class X1:
             f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
         )
+
+        await asyncio.sleep(3)
+
+        return True
+    
+    async def process_perform_add_liquidity(self, private_key: str, address: str, proxy_url=None):
+        pools = await self.pool_by_tokens(address, proxy_url)
+        if not pools: return False
+
+        self.log(f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}                                   ")
+
+        x1t_balance = await self.get_token_balance(address)
+        self.log(
+            f"{Fore.GREEN+Style.BRIGHT}      1. {Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT}{x1t_balance} X1T{Style.RESET_ALL}"
+        )
+
+        if x1t_balance is None:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch X1T Token Balance {Style.RESET_ALL}"
+            )
+            return False
+
+        usdt_balance = await self.get_token_balance(address, self.CONTRACT_ADDRESS["USDT"])
+        self.log(
+            f"{Fore.GREEN+Style.BRIGHT}      2. {Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT}{usdt_balance} USDT{Style.RESET_ALL}"
+        )
+        
+        if usdt_balance is None:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch USDT Token Balance {Style.RESET_ALL}"
+            )
+            return False
+        
+        self.log(f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}")
+        self.log(
+            f"{Fore.GREEN+Style.BRIGHT}      1. {Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT}{self.LIQUIDITY_AMOUNT} X1T{Style.RESET_ALL}"
+        )
+        
+        if x1t_balance < self.LIQUIDITY_AMOUNT:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Insufficient X1T Token Balance {Style.RESET_ALL}"
+            )
+            return False
+
+        add_lp = await self.perform_add_liquidity(private_key, address, pools, usdt_balance)
+        if not add_lp: return False
+
+        block_number = add_lp["block_number"]
+        tx_hash = add_lp["tx_hash"]
+        explorer = self.API_URL["explorer"]
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}                                   "
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
+        )
+
+        await asyncio.sleep(3)
 
         return True
     
@@ -1052,6 +1371,16 @@ class X1:
 
             elif type == "swap":
                 if not await self.process_perform_swap(private_key, address, proxy_url): continue
+
+            elif type == "liquidity":
+                if not await self.process_perform_add_liquidity(private_key, address, proxy_url): continue
+
+            elif type == "tc":
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} This feature is currently under development {Style.RESET_ALL}"
+                )
+                continue
 
             complete = await self.complete_quest(address, quest_id, proxy_url)
             if not complete: continue
@@ -1155,5 +1484,4 @@ if __name__ == "__main__":
             f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
             f"{Fore.RED + Style.BRIGHT}[ EXIT ] X1 Ecochain - BOT{Style.RESET_ALL}                                       "                              
         )
-    finally:
         sys.exit(0)
