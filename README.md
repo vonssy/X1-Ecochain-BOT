@@ -22,7 +22,7 @@
 
 X1 EcoChain BOT is an automated tool designed to streamline onchain operations across multiple accounts. It provides seamless integration with X1 EcoChain network and offers robust proxy support for enhanced security and reliability.
 
-**🔗 Get Started:** [Register on X1 EcoChain](https://t.x1.one/?rcode=W-p0XycS)
+**🔗 Get Started:** [Register on X1 EcoChain](https://t.x1eco.com/?rcode=W-p0XycS)
 
 > **Important:** Connect new evm wallet.
 
