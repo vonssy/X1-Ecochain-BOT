@@ -969,7 +969,11 @@ class X1:
                                 f"{Fore.YELLOW+Style.BRIGHT} Failed to Request Faucet {Style.RESET_ALL}"
                             )
 
-                            if "Please try again later." in resp_text: return True
+                            if "Please try again later." in resp_text: 
+                                return True
+
+                            elif "Something went wrong" in resp_text:
+                                raise Exception(resp_text)
 
                             return False
                         
