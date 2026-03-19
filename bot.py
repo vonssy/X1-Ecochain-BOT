@@ -31,8 +31,8 @@ class X1:
             "explorer": "https://maculatus-scan.x1eco.com/tx/",
         }
 
-        self.SEND_PERCENT = Decimal(os.getenv("SEND_PERCENT", "50"))
-        self.SWAP_PERCENT = Decimal(os.getenv("SWAP_PERCENT", "50"))
+        self.SEND_PERCENT = Decimal(os.getenv("SEND_PERCENT", "10"))
+        self.SWAP_PERCENT = Decimal(os.getenv("SWAP_PERCENT", "10"))
         self.LIQUIDITY_AMOUNT = Decimal(os.getenv("LIQUIDITY_AMOUNT", "1"))
 
         self.CONTRACT_ADDRESS = {
@@ -42,7 +42,9 @@ class X1:
 
         self.CONTRACT_ROUTER = {
             "swap": "0x1BEC6C32bAA0881EA3f3Ec5e95d10EF8a252589B",
-            "mint": "0x4505eEA72B4D215284305d794CCAc618cd5eA531"
+            "mint": "0x4505eEA72B4D215284305d794CCAc618cd5eA531",
+            "deploy": "0x8364089f85CFc7Bb455f1c8F2D924568cE433f9F",
+            "payable": "0x34264ec130f9aD5Fc9aa20aB95e42067b1304B5a",
         }
 
         self.CONTRACT_ABI = [
@@ -136,6 +138,17 @@ class X1:
                     { "internalType": "uint256", "name": "amount0", "type": "uint256" },
                     { "internalType": "uint256", "name": "amount1", "type": "uint256" }
                 ]
+            },
+            {
+                "type": "function",
+                "name": "sendAndDeploy",
+                "stateMutability": "payable",
+                "inputs": [
+                    { "internalType": "address payable", "name": "to", "type": "address" },
+                    { "internalType": "uint256", "name": "amount", "type": "uint256" },
+                    { "internalType": "bytes", "name": "creationCode", "type": "bytes" }
+                ],
+                "outputs": []
             }
         ]
 
@@ -1035,13 +1048,6 @@ class X1:
 
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
                     async with session.post(url=url, headers=headers, params=params, proxy=proxy, proxy_auth=proxy_auth) as response:
-                        if response.status == 400:
-                            self.log(
-                                f"{Fore.BLUE+Style.BRIGHT}   Complete :{Style.RESET_ALL}"
-                                f"{Fore.RED+Style.BRIGHT} Failed {Style.RESET_ALL}"
-                            )
-                            return None
-                        
                         await self.ensure_ok(response)
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -1089,6 +1095,12 @@ class X1:
         if not auth_sign: return False
 
         self.accounts[address]["token"] = auth_sign.get("token")
+
+        user_data = auth_sign.get("user", {})
+        linked_accounts = user_data.get("linked_accounts", [])
+        self.accounts[address]["linked_types"] = {
+            acc.get("accountType") for acc in linked_accounts
+        }
 
         self.log(
             f"{Fore.CYAN+Style.BRIGHT}Login   :{Style.RESET_ALL}"
@@ -1353,6 +1365,7 @@ class X1:
             type = quest.get("type")
             reward = quest.get("reward")
             periodicity = quest.get("periodicity")
+            requirements = quest.get("requirements")
             is_completed = quest.get("is_completed")
             is_completed_today = quest.get("is_completed_today")
 
@@ -1369,6 +1382,22 @@ class X1:
                     )
                     continue
 
+                if requirements:
+                    linked_types = self.accounts[address].get("linked_types", set())
+                    skip_reason = None
+
+                    if requirements.get("linked_twitter") and "x" not in linked_types:
+                        skip_reason = "X (Twitter) account not linked"
+                    elif requirements.get("linked_discord") and "discord" not in linked_types:
+                        skip_reason = "Discord account not linked"
+
+                    if skip_reason:
+                        self.log(
+                            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                            f"{Fore.YELLOW+Style.BRIGHT} Skipped - {skip_reason} {Style.RESET_ALL}"
+                        )
+                        continue
+
             elif periodicity == "daily":
                 if is_completed_today:
                     self.log(
@@ -1377,7 +1406,14 @@ class X1:
                     )
                     continue
 
-            if type == "faucet":
+            if type in ["nomis", "symbiosis"]:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Skipped {Style.RESET_ALL}"
+                )
+                continue
+
+            elif type == "faucet":
                 if not await self.process_request_faucet(address, proxy_url): continue
 
             elif type == "transfer":
