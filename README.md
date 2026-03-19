@@ -98,8 +98,9 @@ your_private_key_3
 Create or edit `.env` in the project directory:
 
 ```
-SEND_AMOUNT=1
-SWAP_AMOUNT=1
+SEND_PERCENT=50 # In percent. 50 = 50% Of Total Balance
+SWAP_PERCENT=50 # In percent. 50 = 50% Of Total Balance
+LIQUIDITY_AMOUNT=1
 ```
 
 ### Proxy Configuration (Optional)
