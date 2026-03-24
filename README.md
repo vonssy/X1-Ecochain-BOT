@@ -31,19 +31,20 @@ X1 EcoChain BOT is an automated tool designed to streamline onchain operations a
 - 🔄 **Automated Account Management** - Retrieve account information automatically
 - 🌐 **Flexible Proxy Support** - Run with or without proxy configuration
 - 🔀 **Smart Proxy Rotation** - Automatic rotation of invalid proxies
+- ⏰ **Daily Check-In** – Automated perform daily check-in
+- 📜 **Quests Completion** – Automated complete available quests
 - 🚰 **Claim Test Token** - Automated claim daily XIT Faucet
 - 💸 **Send Test Tokens** - Automated transfer X1T token to random recipient
 - 🔁 **Swap Test Tokens** - Automated swap X1T token to USDT token
 - 💧 **Add Liquidity** - Automated add Liquidity pools
-- ⏰ **Daily Check-In** – Automated perform daily check-in
-- 📜 **Quests Completion** – Automated complete available quests
+- ⚡ **Deploy Token** - Automated create & deploy token
 - 👥 **Multi-Account Support** - Manage multiple accounts simultaneously
 
 ## 📋 Requirements
 
 - **Python:** Version 3.9 or higher
 - **pip:** Latest version recommended
-- **Compatible libraries:** web3, eth-account and eth-utils(see requirements.txt)
+- **Compatible libraries:** See requirements.txt
 
 ## 🛠 Installation
 
@@ -98,8 +99,8 @@ your_private_key_3
 Create or edit `.env` in the project directory:
 
 ```
-SEND_PERCENT=50 # In percent. 50 = 50% Of Total Balance
-SWAP_PERCENT=50 # In percent. 50 = 50% Of Total Balance
+SEND_PERCENT=10 # In percent. 10 = 10% Of Total Balance
+SWAP_PERCENT=10 # In percent. 10 = 10% Of Total Balance
 LIQUIDITY_AMOUNT=1
 ```
 

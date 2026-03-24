@@ -10,9 +10,11 @@ from web3.middleware import ExtraDataToPOAMiddleware
 from web3.exceptions import TransactionNotFound
 from eth_account import Account
 from eth_account.messages import encode_defunct
+from eth_abi.abi import encode
 from eth_utils import to_hex
 from dotenv import load_dotenv
-from datetime import datetime
+from solcx import compile_standard, install_solc
+from datetime import datetime, timezone
 from decimal import Decimal, getcontext, ROUND_DOWN
 from colorama import *
 import asyncio, random, time, sys, re, os
@@ -21,12 +23,15 @@ load_dotenv()
 
 getcontext().prec = 80
 
+install_solc("0.8.27", show_progress=False)
+
 class X1:
     def __init__(self) -> None:
         self.API_URL = {
             "testnet": "https://testnet-api.x1eco.com",
             "nft": "https://nft-api.x1eco.com",
             "dex": "https://ms.kod.af",
+            "constructor": "https://api-constructor.x1ecochain.com",
             "rpc": "https://maculatus-rpc.x1eco.com/",
             "explorer": "https://maculatus-scan.x1eco.com/tx/",
         }
@@ -34,6 +39,7 @@ class X1:
         self.SEND_PERCENT = Decimal(os.getenv("SEND_PERCENT", "10"))
         self.SWAP_PERCENT = Decimal(os.getenv("SWAP_PERCENT", "10"))
         self.LIQUIDITY_AMOUNT = Decimal(os.getenv("LIQUIDITY_AMOUNT", "1"))
+        self.DEPLOY_AMOUNT = 100
 
         self.CONTRACT_ADDRESS = {
             "WX1T": "0xe2ED17Ae5e68863E77899205a83A8f1E138c608f",
@@ -281,20 +287,37 @@ class X1:
 
         return proxy_url
     
-    def initialize_headers(self, address: str):
-        headers = {
-            "Accept": "*/*",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Cache-Control": "no-cache",
-            "Origin": "https://testnet.x1ecochain.com",
-            "Pragma": "no-cache",
-            "Referer": "https://testnet.x1ecochain.com/",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "cross-site",
-            "User-Agent": self.accounts[address]["user_agent"]
-        }
+    def initialize_headers(self, address: str, headers_type="base"):
+        if headers_type == "base":
+            headers = {
+                "Accept": "*/*",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Cache-Control": "no-cache",
+                "Origin": "https://testnet.x1ecochain.com",
+                "Pragma": "no-cache",
+                "Referer": "https://testnet.x1ecochain.com/",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "cross-site",
+                "User-Agent": self.accounts[address]["user_agent"]
+            }
+        else:
+            headers = {
+                "Accept": "*/*",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Host": "api-constructor.x1ecochain.com",
+                "Origin": "https://constructor.x1ecochain.com",
+                "Pragma": "no-cache",
+                "Referer": "https://constructor.x1ecochain.com/",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-site",
+                "User-Agent": self.accounts[address]["user_agent"]
+            }
 
         return headers.copy()
     
@@ -330,6 +353,32 @@ class X1:
                 f"{Fore.YELLOW+Style.BRIGHT} Failed to Generate Random Recipient {Style.RESET_ALL}"
             )
             return None
+        
+    def mask_account(self, account):
+        try:
+            mask_account = account[:6] + '*' * 6 + account[-6:]
+            return mask_account
+        except Exception as e:
+            return None
+        
+    def generate_constructor_msg(self, address: str, nonce: str):
+        now = datetime.now(timezone.utc)
+        issued_at = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+        message = "\n".join([
+            "constructor.x1ecochain.com wants you to sign in with your Ethereum account:",
+            address,
+            "",
+            "Sign in to Token Constructor.",
+            "",
+            "URI: https://constructor.x1ecochain.com",
+            "Version: 1",
+            "Chain ID: 10778",
+            f"Nonce: {nonce}",
+            f"Issued At: {issued_at}",
+        ])
+
+        return message
     
     def generate_signature(self, private_key: str, message: str):
         try:
@@ -340,12 +389,367 @@ class X1:
         except Exception as e:
             raise Exception(f"Generate Signature Failed: {str(e)}")
         
-    def mask_account(self, account):
-        try:
-            mask_account = account[:6] + '*' * 6 + account[-6:]
-            return mask_account
-        except Exception as e:
-            return None
+    def generate_token_params(self):
+        PREFIXES = [
+            "Eco", "Neo", "Meta", "Flux", "Nova", "Omni", "Apex", "Volt",
+            "Zeta", "Hexa", "Plex", "Velo", "Dyna", "Core", "Nexo", "Orbi",
+            "Pyro", "Aero", "Giga", "Hyper", "Luma", "Meso", "Nano", "Opti",
+        ]
+        SUFFIXES = [
+            "Chain", "Node", "Net", "Fi", "X", "Protocol", "Hub", "Base",
+            "Link", "Flow", "Grid", "Vault", "Wave", "Sphere", "Lab", "Works",
+            "Forge", "Gate", "Port", "Space", "Sync", "Pulse", "Byte", "Coin",
+        ]
+
+        prefix = random.choice(PREFIXES)
+        suffix = random.choice(SUFFIXES)
+        number = random.randint(1, 999)
+        name   = f"{prefix}{suffix}{number:03d}"
+        symbol = (prefix[:2] + suffix[:2]).upper()
+
+        zeros   = random.randint(6, 9)
+        leading = 1 if zeros == 9 else random.randint(1, 9)
+        premint = str(leading * (10 ** zeros))
+
+        return {
+            "name":          name,
+            "symbol":        symbol,
+            "permit":        True,
+            "decimals":      "18",
+            "premintAmount": premint,
+            "mintable":      False,
+            "burnable":      False,
+            "pausable":      False,
+            "whitelist":     False,
+            "taxable":       False,
+            "taxFee":        2,
+        }
+
+    def build_solidity_source(self, token_params):
+        name           = token_params["name"]
+        symbol         = token_params["symbol"]
+        permit         = token_params.get("permit", False)
+        decimals       = token_params.get("decimals", "18")
+        premint_amount = token_params.get("premintAmount", "0")
+        mintable       = token_params.get("mintable", False)
+        burnable       = token_params.get("burnable", False)
+        pausable       = token_params.get("pausable", False)
+        whitelist      = token_params.get("whitelist", False)
+        taxable        = token_params.get("taxable", False)
+        tax_fee_bps    = round(token_params.get("taxFee", 0) * 100)
+
+        permit_mod = (
+            {
+                "import":                 f'import {{ERC20Permit}} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";',
+                "inheritance":            "ERC20Permit",
+                "constructorInheritance": f'ERC20Permit("{name}")',
+            }
+            if permit else
+            {"import": "", "inheritance": "", "constructorInheritance": ""}
+        )
+
+        mint_mod = (
+            {
+                "import":          "",
+                "constant":        'bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");',
+                "constructorArg":  "address minter",
+                "constructorRole": "_grantRole(MINTER_ROLE, minter);",
+                "function": (
+                    f'function mint(address to, uint256 amount) public '
+                    f'{"onlyRole(MINTER_ROLE)" if whitelist else "onlyOwner"} {{\n'
+                    f'        _mint(to, amount);\n    }}'
+                ),
+            }
+            if mintable else
+            {"import": "", "constant": "", "constructorArg": "", "constructorRole": "", "function": ""}
+        )
+
+        burn_mod = (
+            {
+                "import":      'import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";',
+                "inheritance": "ERC20Burnable",
+            }
+            if burnable else
+            {"import": "", "inheritance": ""}
+        )
+
+        pause_mod = (
+            {
+                "import":      'import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";',
+                "inheritance": "ERC20Pausable",
+                "constant":    'bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");',
+                "constructorArg":  "address pauser",
+                "constructorRole": "_grantRole(PAUSER_ROLE, pauser);",
+                "function": (
+                    f'function pause() public {"onlyRole(PAUSER_ROLE)" if whitelist else "onlyOwner"} {{\n'
+                    f'        _pause();\n    }}\n\n'
+                    f'    function unpause() public {"onlyRole(PAUSER_ROLE)" if whitelist else "onlyOwner"} {{\n'
+                    f'        _unpause();\n    }}'
+                ),
+                "overrideFunction": (
+                    'function _update(address from, address to, uint256 value)\n'
+                    '        internal\n'
+                    '        override(ERC20, ERC20Pausable)\n'
+                    '    {\n'
+                    + (
+                        '        if (from != address(0) && whitelistActive) {\n'
+                        '            require(hasRole(WHITELIST_ROLE, from), "Whitelist: Sender lacks role");\n'
+                        '        }\n'
+                        if whitelist else ''
+                    )
+                    + '        super._update(from, to, value);\n    }'
+                ),
+            }
+            if pausable else
+            {"import": "", "inheritance": "", "constant": "", "constructorArg": "", "constructorRole": "", "function": "", "overrideFunction": ""}
+        )
+
+        wl_mod = (
+            {
+                "import":      'import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";',
+                "constant":    'bytes32 public constant WHITELIST_ROLE = keccak256("WHITELIST_ROLE");\n    bool public whitelistActive = true;',
+                "inheritance": "AccessControl",
+                "constructorArg":  "address defaultAdmin",
+                "constructorRole": "_grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);\n        _grantRole(WHITELIST_ROLE, defaultAdmin);",
+                "function": (
+                    'function setWhitelistActive(bool _active) public onlyRole(DEFAULT_ADMIN_ROLE) {\n'
+                    '        whitelistActive = _active;\n    }'
+                ),
+                "overrideFunction": (
+                    f'function _update(address from, address to, uint256 value)\n'
+                    f'        internal\n'
+                    f'        override{"(ERC20, ERC20Pausable)" if pausable else "(ERC20)"}\n'
+                    f'    {{\n'
+                    f'        if (from != address(0) && whitelistActive) {{\n'
+                    f'            require(hasRole(WHITELIST_ROLE, from), "Whitelist: Sender lacks role");\n'
+                    f'        }}\n'
+                    f'        super._update(from, to, value);\n    }}'
+                ),
+            }
+            if whitelist else
+            {"import": "", "constant": "", "inheritance": "", "constructorArg": "", "constructorRole": "", "function": "", "overrideFunction": ""}
+        )
+
+        ownable_mod = (
+            {"import": "", "inheritance": "", "constructorArg": "", "constructorInheritance": ""}
+            if whitelist else
+            {
+                "import":                 'import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";',
+                "inheritance":            "Ownable",
+                "constructorArg":         "address initialOwner",
+                "constructorInheritance": "Ownable(initialOwner)",
+            }
+        )
+
+        decimals_mod = {
+            "constructorFunction": f"_mint(recipient, {premint_amount} * 10 ** decimals());",
+            "overrideFunction": (
+                f'function decimals() public view override returns (uint8) {{\n'
+                f'        return {decimals};\n    }}'
+            ),
+        }
+
+        tax_mod = (
+            {
+                "constant":            f"address public taxWallet;\n    uint256 public taxFeeBps = {tax_fee_bps};",
+                "constructorArg":      "address _taxWallet",
+                "constructorFunction": "taxWallet = _taxWallet;",
+                "function": (
+                    f'function setTaxWallet(address _newTaxWallet) external {"onlyRole(DEFAULT_ADMIN_ROLE)" if whitelist else "onlyOwner"} {{\n'
+                    f'        require(_newTaxWallet != address(0), "Tax wallet cannot be zero address");\n'
+                    f'        taxWallet = _newTaxWallet;\n    }}'
+                ),
+                "overrideFunction": (
+                    f'function _update(address from, address to, uint256 value)\n'
+                    f'        internal\n'
+                    f'        override{"(ERC20, ERC20Pausable)" if pausable else "(ERC20)"}\n'
+                    f'    {{\n'
+                    + (
+                        '        \n        if (from != address(0) && whitelistActive) {\n'
+                        '            require(hasRole(WHITELIST_ROLE, from), "Whitelist: Sender lacks role");\n'
+                        '        }\n'
+                        if whitelist else ''
+                    )
+                    + f'        if (from == address(0) || to == address(0) || {"hasRole(DEFAULT_ADMIN_ROLE, from)" if whitelist else "from == owner()"} || from == taxWallet) {{\n'
+                    f'            super._update(from, to, value);\n'
+                    f'            return;\n'
+                    f'        }}\n\n'
+                    f'        uint256 taxAmount = (value * taxFeeBps) / 10000;\n'
+                    f'        uint256 amountAfterTax = value - taxAmount;\n\n'
+                    f'        if (taxAmount > 0) {{\n'
+                    f'            super._update(from, taxWallet, taxAmount);\n'
+                    f'        }}\n'
+                    f'        super._update(from, to, amountAfterTax);\n    }}'
+                ),
+            }
+            if taxable else
+            {"constant": "", "constructorArg": "", "constructorFunction": "", "function": "", "overrideFunction": ""}
+        )
+
+        imports = [x for x in [
+            wl_mod["import"],
+            mint_mod["import"],
+            'import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";',
+            burn_mod["import"],
+            pause_mod["import"],
+            permit_mod["import"],
+            ownable_mod["import"],
+        ] if x]
+
+        inheritances = [x for x in [
+            "ERC20",
+            burn_mod["inheritance"],
+            pause_mod["inheritance"],
+            ownable_mod["inheritance"],
+            wl_mod["inheritance"],
+            permit_mod["inheritance"],
+        ] if x]
+
+        constants        = [x for x in ([pause_mod["constant"], mint_mod["constant"], wl_mod["constant"], tax_mod["constant"]] if whitelist else [tax_mod["constant"]]) if x]
+        constructor_args = [x for x in ([wl_mod["constructorArg"], pause_mod["constructorArg"], mint_mod["constructorArg"], tax_mod["constructorArg"]] if whitelist else [ownable_mod["constructorArg"], tax_mod["constructorArg"]]) if x]
+        ctor_inherit     = [x for x in [f'ERC20("{name}", "{symbol}")', "" if whitelist else ownable_mod["constructorInheritance"], permit_mod["constructorInheritance"]] if x]
+        ctor_body        = [x for x in ([tax_mod["constructorFunction"], decimals_mod["constructorFunction"], wl_mod["constructorRole"], pause_mod["constructorRole"], mint_mod["constructorRole"]] if whitelist else [tax_mod["constructorFunction"], decimals_mod["constructorFunction"]]) if x]
+
+        if taxable:
+            update_override = tax_mod["overrideFunction"]
+        elif pausable:
+            update_override = pause_mod["overrideFunction"]
+        else:
+            update_override = wl_mod["overrideFunction"]
+
+        functions = [x for x in [
+            wl_mod["function"],
+            pause_mod["function"],
+            mint_mod["function"],
+            decimals_mod["overrideFunction"],
+            tax_mod["function"],
+            update_override,
+        ] if x]
+
+        all_ctor_args      = ", ".join(["address recipient"] + [a for a in constructor_args if a.strip()])
+        constants_block    = ("\n    " + "\n    ".join(constants) + "\n") if constants else ""
+        ctor_inherit_block = ("\n        " + "\n        ".join(ctor_inherit) + "\n   ") if ctor_inherit else ""
+        ctor_body_block    = ("\n        " + "\n        ".join(ctor_body) + "\n    ") if ctor_body else ""
+        functions_block    = ("\n\n    " + "\n\n    ".join(functions)) if functions else ""
+
+        return (
+            "// SPDX-License-Identifier: MIT\n"
+            "// Compatible with OpenZeppelin Contracts ^5.5.0\n"
+            "pragma solidity ^0.8.27;\n\n"
+            + "\n".join(imports) + "\n\n"
+            + f"contract {name} is {', '.join(inheritances)} {{"
+            + constants_block + "\n"
+            + f"    constructor({all_ctor_args}) "
+            + ctor_inherit_block + " "
+            + "{" + ctor_body_block + "}"
+            + functions_block + "\n}"
+        )
+
+    def resolve_path(self, base, rel):
+        parts = base.split("/")
+        parts.pop()
+        for seg in rel.split("/"):
+            if seg == ".":
+                continue
+            elif seg == "..":
+                parts.pop()
+            else:
+                parts.append(seg)
+        return "/".join(parts)
+
+    async def resolve_imports(self, entry_path, source_code, sources=None, proxy_url=None):
+        if sources is None:
+            sources = {}
+        sources[entry_path] = {"content": source_code}
+
+        for m in re.finditer(r'import\s+(?:\{[^}]*\}\s+from\s+)?["\']([^"\']+)["\']', source_code):
+            raw      = m.group(1)
+            resolved = self.resolve_path(entry_path, raw) if raw.startswith(("./", "../")) else raw
+            if resolved in sources:
+                continue
+
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
+            try:
+                url = (
+                    f"https://cdn.jsdelivr.net/npm/@openzeppelin/contracts@5.0.0/"
+                    + resolved.replace("@openzeppelin/contracts/", "")
+                    if resolved.startswith("@openzeppelin/contracts")
+                    else f"https://cdn.jsdelivr.net/npm/{resolved}"
+                )
+                async with ClientSession(connector=connector, timeout=ClientTimeout(total=30)) as session:
+                    async with session.get(url=url, proxy=proxy, proxy_auth=proxy_auth) as response:
+                        response.raise_for_status()
+                        await self.resolve_imports(resolved, await response.text(), sources)
+            except Exception:
+                pass
+
+        return sources
+
+    def compile_solidity(self, contract_name, sources):
+        output = compile_standard(
+            {
+                "language": "Solidity",
+                "sources":  sources,
+                "settings": {
+                    "optimizer":       {"enabled": False},
+                    "outputSelection": {"*": {"*": ["abi", "evm.bytecode.object"]}},
+                },
+            },
+            solc_version="0.8.27",
+        )
+
+        errors = [e for e in output.get("errors", []) if e["severity"] == "error"]
+        if errors:
+            raise RuntimeError("\n".join(e["formattedMessage"] for e in errors))
+
+        fn        = f"{contract_name}Token.sol"
+        contracts = output["contracts"].get(fn, {})
+        contract  = contracts.get(contract_name) or contracts.get("Token")
+        if not contract:
+            raise RuntimeError(f'Contract "{contract_name}" not found')
+
+        return {"bytecode": contract["evm"]["bytecode"]["object"], "abi": contract["abi"]}
+
+    def encode_constructor_args(self, features, addresses):
+        recipient  = addresses["recipient"]
+        owner      = addresses.get("owner",     recipient)
+        pauser     = addresses.get("pauser",    owner)
+        minter     = addresses.get("minter",    owner)
+        tax_wallet = addresses.get("taxWallet", owner)
+
+        types  = ["address", "address"]
+        values = [recipient, owner]
+
+        if features.get("whitelist"):
+            if features.get("pausable"):
+                types.append("address"); values.append(pauser)
+            if features.get("mintable"):
+                types.append("address"); values.append(minter)
+        if features.get("taxable"):
+            types.append("address"); values.append(tax_wallet)
+
+        return "0x" + encode(types, values).hex()
+
+    async def generate_creation_code(self, address, token_params):
+        solidity_source = self.build_solidity_source(token_params)
+        file_name       = f"{token_params['name']}Token.sol"
+        sources         = await self.resolve_imports(file_name, solidity_source)
+        compiled        = self.compile_solidity(token_params["name"], sources)
+
+        addresses = {
+            "recipient": address,
+            "owner":     address,
+        }
+
+        features = {
+            "whitelist": token_params.get("whitelist", False),
+            "pausable":  token_params.get("pausable",  False),
+            "mintable":  token_params.get("mintable",  False),
+            "taxable":   token_params.get("taxable",   False),
+        }
+        encoded_args = self.encode_constructor_args(features, addresses)
+
+        return "0x" + compiled["bytecode"] + encoded_args[2:]
         
     async def get_web3_with_check(self, address: str, retries=3, timeout=60):
         request_kwargs = {"timeout": timeout}
@@ -775,6 +1179,75 @@ class X1:
             )
             return None
         
+    async def perform_deploy_token(self, private_key: str, address: str, token_params: dict):
+        try:
+            web3 = await self.get_web3_with_check(address)
+
+            payable = web3.to_checksum_address(self.CONTRACT_ROUTER['payable']) 
+            router = web3.to_checksum_address(self.CONTRACT_ROUTER['deploy'])
+
+            amount_to_wei = web3.to_wei(self.DEPLOY_AMOUNT, "ether")
+
+            creation_code = await self.generate_creation_code(address, token_params)
+
+            creation_code_bytes = web3.to_bytes(hexstr=creation_code)
+
+            router_contract = web3.eth.contract(address=router, abi=self.CONTRACT_ABI)
+
+            deploy_func = router_contract.functions.sendAndDeploy(payable, amount_to_wei, creation_code_bytes)
+
+            estimated_gas = await asyncio.to_thread(
+                deploy_func.estimate_gas,
+                {
+                    "from": address,
+                    "value": amount_to_wei
+                }
+            )
+
+            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+            base_fee = latest_block["baseFeePerGas"]
+
+            max_priority_fee = web3.to_wei(1, "gwei")
+            max_fee = base_fee + max_priority_fee
+
+            nonce = await asyncio.to_thread(
+                web3.eth.get_transaction_count,
+                address,
+                "pending"
+            )
+
+            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+
+            deploy_tx = await asyncio.to_thread(
+                deploy_func.build_transaction,
+                {
+                    "from": address,
+                    "value": amount_to_wei,
+                    "gas": int(estimated_gas * 1.2),
+                    "maxFeePerGas": int(max_fee),
+                    "maxPriorityFeePerGas": int(max_priority_fee),
+                    "nonce": nonce,
+                    "chainId": chain_id,
+                }
+            )
+
+            tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, deploy_tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+
+            token_address = web3.to_checksum_address(receipt["logs"][1]["address"])
+
+            return {
+                "tx_hash": tx_hash, 
+                "block_number": receipt.blockNumber,
+                "token_address": token_address,
+            }
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+        
     def print_question(self):
         while True:
             try:
@@ -895,7 +1368,7 @@ class X1:
             connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 headers = self.initialize_headers(address)
-                headers["Authorization"] = self.accounts[address]["token"]
+                headers["Authorization"] = self.accounts[address]["tokens"]["base"]
                 headers["Content-Type"] = "application/json"
 
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
@@ -922,7 +1395,7 @@ class X1:
             connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 headers = self.initialize_headers(address)
-                headers["Authorization"] = self.accounts[address]["token"]
+                headers["Authorization"] = self.accounts[address]["tokens"]["base"]
                 headers["Content-Type"] = "application/json"
 
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
@@ -949,7 +1422,7 @@ class X1:
             connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 headers = self.initialize_headers(address)
-                headers["Authorization"] = self.accounts[address]["token"]
+                headers["Authorization"] = self.accounts[address]["tokens"]["base"]
                 headers["Content-Type"] = "application/json"
                 params = {
                     "address": address
@@ -964,10 +1437,6 @@ class X1:
                                 f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
                                 f"{Fore.RED+Style.BRIGHT} {resp_text} {Style.RESET_ALL}"
                             )
-                            self.log(
-                                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                                f"{Fore.YELLOW+Style.BRIGHT} Failed to Request Faucet {Style.RESET_ALL}"
-                            )
 
                             if "Please try again later." in resp_text: 
                                 return True
@@ -975,6 +1444,10 @@ class X1:
                             elif "Something went wrong" in resp_text:
                                 raise Exception(resp_text)
 
+                            self.log(
+                                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                                f"{Fore.YELLOW+Style.BRIGHT} Failed to Request Faucet {Style.RESET_ALL}"
+                            )
                             return False
                         
                         await self.ensure_ok(response)
@@ -1037,14 +1510,14 @@ class X1:
 
         return None
     
-    async def complete_quest(self, address: str, quest_id: str, proxy_url=None, retries=5):
+    async def complete_quest(self, address: str, quest_id: str, proxy_url=None, retries=60):
         url = f"{self.API_URL['testnet']}/quests"
         
         for attempt in range(retries):
             connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 headers = self.initialize_headers(address)
-                headers["Authorization"] = self.accounts[address]["token"]
+                headers["Authorization"] = self.accounts[address]["tokens"]["base"]
                 headers["Content-Type"] = "application/json"
                 params = {
                     "quest_id": quest_id
@@ -1056,7 +1529,7 @@ class X1:
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(3)
                     continue
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
@@ -1065,6 +1538,103 @@ class X1:
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Complete :{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} Failed {Style.RESET_ALL}"
+                )
+
+        return None
+    
+    async def auth_nonce(self, address: str, proxy_url=None, retries=60):
+        url = f"{self.API_URL['constructor']}/api/v1/auth/nonce"
+        
+        for attempt in range(retries):
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
+            try:
+                headers = self.initialize_headers(address, "constructor")
+                params = {
+                    "address": address
+                }
+
+                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
+                    async with session.get(url=url, headers=headers, params=params, proxy=proxy, proxy_auth=proxy_auth) as response:
+                        await self.ensure_ok(response)
+                        return await response.json()
+            except (Exception, ClientResponseError) as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(3)
+                    continue
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch Auth Nonce {Style.RESET_ALL}"
+                )
+
+        return None
+    
+    async def auth_verify(self, private_key: str, address: str, message: str, proxy_url=None, retries=60):
+        url = f"{self.API_URL['constructor']}/api/v1/auth/verify"
+        
+        for attempt in range(retries):
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
+            try:
+                headers = self.initialize_headers(address, "constructor")
+                headers["Content-Type"] = "application/json"
+                payload = {
+                    "message": message,
+                    "signature": self.generate_signature(private_key, message)
+                }
+
+                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
+                    async with session.post(url=url, headers=headers, json=payload, proxy=proxy, proxy_auth=proxy_auth) as response:
+                        await self.ensure_ok(response)
+                        return await response.json()
+            except (Exception, ClientResponseError) as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(3)
+                    continue
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Failed to Auth Verify {Style.RESET_ALL}"
+                )
+
+        return None
+    
+    async def save_contracts(self, address: str, token_name: str, token_address: str, proxy_url=None, retries=60):
+        url = f"{self.API_URL['constructor']}/api/v1/contracts"
+        
+        for attempt in range(retries):
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
+            try:
+                headers = self.initialize_headers(address, "constructor")
+                headers["Authorization"] = f"Bearer {self.accounts[address]['tokens']['constructor']}"
+                headers["Content-Type"] = "application/json"
+                payload = {
+                    "address": token_address,
+                    "features": "ERC20 Token",
+                    "name": token_name,
+                    "owner": address
+                }
+
+                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
+                    async with session.post(url=url, headers=headers, json=payload, proxy=proxy, proxy_auth=proxy_auth) as response:
+                        await self.ensure_ok(response)
+                        return await response.json()
+            except (Exception, ClientResponseError) as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(3)
+                    continue
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Failed to Save Contract {Style.RESET_ALL}"
                 )
 
         return None
@@ -1098,7 +1668,7 @@ class X1:
         auth_sign = await self.auth_signin(private_key, address, message, proxy_url)
         if not auth_sign: return False
 
-        self.accounts[address]["token"] = auth_sign.get("token")
+        self.accounts[address]["tokens"]["base"] = auth_sign.get("token")
 
         user_data = auth_sign.get("user", {})
         linked_accounts = user_data.get("linked_accounts", [])
@@ -1110,6 +1680,21 @@ class X1:
             f"{Fore.CYAN+Style.BRIGHT}Login   :{Style.RESET_ALL}"
             f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
         )
+
+        return True
+        
+    async def process_auth_verify(self, private_key: str, address: str, proxy_url=None):
+        auth_nonce = await self.auth_nonce(address, proxy_url)
+        if not auth_nonce: return False
+
+        nonce = auth_nonce.get("nonce")
+
+        message = self.generate_constructor_msg(address, nonce)
+
+        verify = await self.auth_verify(private_key, address, message, proxy_url)
+        if not verify: return False
+
+        self.accounts[address]["tokens"]["constructor"] = verify.get("token")
 
         return True
         
@@ -1346,6 +1931,89 @@ class X1:
 
         return True
     
+    async def process_perform_deploy_token(self, private_key: str, address: str, proxy_url=None):
+        if not await self.process_auth_verify(private_key, address, proxy_url):
+            return False
+        
+        token_params = self.generate_token_params()
+        token_name = token_params["name"]
+        token_symbol = token_params["symbol"]
+        premint = token_params["premintAmount"]
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Name     :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {token_name} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Symbol   :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {token_symbol} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Premint  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {premint} {token_symbol} {Style.RESET_ALL}"
+        )
+
+        balance = await self.get_token_balance(address)
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
+        )
+
+        if balance is None:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch X1T Token Balance {Style.RESET_ALL}"
+            )
+            return False
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Amount   :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {self.DEPLOY_AMOUNT} X1T {Style.RESET_ALL}"
+        )
+
+        if balance <= self.DEPLOY_AMOUNT:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Insufficient X1T Token Balance {Style.RESET_ALL}"
+            )
+            return False
+
+        deploy = await self.perform_deploy_token(private_key, address, token_params)
+        if not deploy: return False
+
+        token_address = deploy["token_address"]
+        block_number = deploy["block_number"]
+        tx_hash = deploy["tx_hash"]
+        explorer = self.API_URL["explorer"]
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Address  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {token_address} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
+        )
+
+        if not await self.save_contracts(address, token_name, token_address, proxy_url):
+            return False
+
+        await asyncio.sleep(3)
+
+        return True
+    
     async def process_complete_quest(self, address: str, quest_id: str, proxy_url=None):
         complete = await self.complete_quest(address, quest_id, proxy_url)
         if not complete: return False
@@ -1430,11 +2098,7 @@ class X1:
                 if not await self.process_perform_add_liquidity(private_key, address, proxy_url): continue
 
             elif type == "tc":
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} This feature is currently under development {Style.RESET_ALL}"
-                )
-                continue
+                if not await self.process_perform_deploy_token(private_key, address, proxy_url): continue
 
             complete = await self.complete_quest(address, quest_id, proxy_url)
             if not complete: continue
@@ -1495,7 +2159,8 @@ class X1:
 
                     if address not in self.accounts:
                         self.accounts[address] = {
-                            "user_agent": random.choice(self.USER_AGENTS)
+                            "user_agent": random.choice(self.USER_AGENTS),
+                            "tokens": {}
                         }
 
                     self.log(
@@ -1525,8 +2190,6 @@ class X1:
 
         except Exception as e:
             raise e
-        except asyncio.CancelledError:
-            raise
 
 if __name__ == "__main__":
     bot = X1()
