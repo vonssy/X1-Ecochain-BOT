@@ -159,8 +159,10 @@ class X1:
         ]
 
         self.REF_CODE = "W-p0XycS" # U can change it with yours.
+
         self.USE_PROXY = False
         self.ROTATE_PROXY = False
+
         self.HEADERS = {}
         self.proxies = []
         self.proxy_index = 0
@@ -751,14 +753,18 @@ class X1:
 
         return "0x" + compiled["bytecode"] + encoded_args[2:]
         
-    async def get_web3_with_check(self, address: str, retries=3, timeout=60):
-        request_kwargs = {"timeout": timeout}
+    async def get_web3_with_check(self, proxy_url=None, retries=5, timeout=60):
+        request_kwargs = {
+            "timeout": timeout
+        }
 
-        if self.USE_PROXY:
-            proxy_url = self.get_next_proxy_for_account(address)
+        if proxy_url:
             request_kwargs["proxies"] = {
-                "http": proxy_url,
-                "https": proxy_url,
+                "http": proxy_url, "https": proxy_url,
+            }
+        else:
+            request_kwargs["proxies"] = {
+                "http": None, "https": None,
             }
 
         for attempt in range(retries):
@@ -778,14 +784,18 @@ class X1:
                 return web3
             except Exception as e:
                 if attempt < retries - 1:
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(5)
                     continue
-                raise Exception(f"Failed to Connect to RPC: {str(e)}")
+                self.log(
+                    f"{Fore.CYAN+Style.BRIGHT}Status  :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} Failed to Connect RPC {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+                return None
 
-    async def get_token_balance(self, address: str, asset=None):
+    async def get_token_balance(self, web3: Web3, address: str, asset=None):
         try:
-            web3 = await self.get_web3_with_check(address)
-
             if asset is None:
                 balance = await asyncio.to_thread(
                     web3.eth.get_balance,
@@ -811,7 +821,7 @@ class X1:
             )
             return None
 
-    async def send_raw_transaction_with_retries(self, private_key, web3, tx, retries=5):
+    async def send_raw_transaction_with_retries(self, web3: Web3, private_key: str, tx, retries=5):
         for attempt in range(retries):
             try:
                 signed_tx = web3.eth.account.sign_transaction(tx, private_key)
@@ -832,7 +842,7 @@ class X1:
             await asyncio.sleep(2 ** attempt)
         raise Exception("Transaction Hash Not Found After Maximum Retries")
 
-    async def wait_for_receipt_with_retries(self, web3, tx_hash, retries=5):
+    async def wait_for_receipt_with_retries(self, web3: Web3, tx_hash: str, retries=5):
         for attempt in range(retries):
             try:
                 receipt = await asyncio.to_thread(
@@ -851,10 +861,8 @@ class X1:
             await asyncio.sleep(2 ** attempt)
         raise Exception("Transaction Receipt Not Found After Maximum Retries")
     
-    async def perform_transfer(self, private_key: str, address: str, recipient: str, amount: Decimal):
+    async def perform_transfer(self, web3: Web3, private_key: str, address: str, recipient: str, amount: Decimal):
         try:
-            web3 = await self.get_web3_with_check(address)
-
             amount_to_wei = web3.to_wei(amount, "ether")
 
             latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
@@ -882,7 +890,7 @@ class X1:
                 "chainId": chain_id,
             }
 
-            tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, transfer_tx)
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, transfer_tx)
             receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
 
             return {
@@ -931,10 +939,8 @@ class X1:
         except Exception as e:
             raise Exception(f"Failed to Calculate Amount Out Min: {str(e)}")
         
-    async def perform_swap(self, private_key: str, address: str, pools: dict, amount: Decimal):
+    async def perform_swap(self, web3: Web3, private_key: str, address: str, pools: dict, amount: Decimal):
         try:
-            web3 = await self.get_web3_with_check(address)
-
             token_in = web3.to_checksum_address(self.CONTRACT_ADDRESS['WX1T'])
             token_out = web3.to_checksum_address(self.CONTRACT_ADDRESS['USDT'])
             router = web3.to_checksum_address(self.CONTRACT_ROUTER['swap'])
@@ -995,7 +1001,7 @@ class X1:
                 }
             )
 
-            tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, swap_tx)
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, swap_tx)
             receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
 
             return {
@@ -1009,10 +1015,8 @@ class X1:
             )
             return None
         
-    async def approving_token(self, private_key: str, address: str, asset: str, spender: str, amount_to_wei: int):
+    async def approving_token(self, web3: Web3, private_key: str, address: str, asset: str, spender: str, amount_to_wei: int):
         try:
-            web3 = await self.get_web3_with_check(address)
-            
             token_contract = web3.eth.contract(address=asset, abi=self.CONTRACT_ABI)
             allowance = await asyncio.to_thread(
                 token_contract.functions.allowance(address, spender).call
@@ -1054,7 +1058,7 @@ class X1:
                     }
                 )
 
-                tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, approve_tx)
+                tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, approve_tx)
                 receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
 
                 block_number = receipt.blockNumber
@@ -1083,10 +1087,8 @@ class X1:
         except Exception as e:
             raise Exception(f"Approving Token Contract Failed: {str(e)}")
         
-    async def perform_add_liquidity(self, private_key: str, address: str, pools: dict, usdt_balance: float):
+    async def perform_add_liquidity(self, web3: Web3, private_key: str, address: str, pools: dict, usdt_balance: float):
         try:
-            web3 = await self.get_web3_with_check(address)
-
             token0 = web3.to_checksum_address(self.CONTRACT_ADDRESS['USDT'])
             token1 = web3.to_checksum_address(self.CONTRACT_ADDRESS['WX1T'])
             router = web3.to_checksum_address(self.CONTRACT_ROUTER['mint'])
@@ -1108,7 +1110,7 @@ class X1:
                 )
                 return False
 
-            await self.approving_token(private_key, address, token0, router, amount0_desired)
+            await self.approving_token(web3, private_key, address, token0, router, amount0_desired)
 
             deadline = int(time.time()) + 600
 
@@ -1165,7 +1167,7 @@ class X1:
                 }
             )
 
-            tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, mint_tx)
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, mint_tx)
             receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
 
             return {
@@ -1179,10 +1181,8 @@ class X1:
             )
             return None
         
-    async def perform_deploy_token(self, private_key: str, address: str, token_params: dict):
+    async def perform_deploy_token(self, web3: Web3, private_key: str, address: str, token_params: dict):
         try:
-            web3 = await self.get_web3_with_check(address)
-
             payable = web3.to_checksum_address(self.CONTRACT_ROUTER['payable']) 
             router = web3.to_checksum_address(self.CONTRACT_ROUTER['deploy'])
 
@@ -1231,7 +1231,7 @@ class X1:
                 }
             )
 
-            tx_hash = await self.send_raw_transaction_with_retries(private_key, web3, deploy_tx)
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, deploy_tx)
             receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
 
             token_address = web3.to_checksum_address(receipt["logs"][1]["address"])
@@ -1740,7 +1740,7 @@ class X1:
 
         return True
     
-    async def process_perform_transfer(self, private_key: str, address: str):
+    async def process_perform_transfer(self, web3: Web3, private_key: str, address: str):
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Token    :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} X1T {Style.RESET_ALL}"
@@ -1750,7 +1750,7 @@ class X1:
             f"{Fore.BLUE+Style.BRIGHT}   Recipient:{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} {recipient} {Style.RESET_ALL}"
         )
-        balance = await self.get_token_balance(address)
+        balance = await self.get_token_balance(web3, address)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
@@ -1769,7 +1769,7 @@ class X1:
             f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SEND_PERCENT}%) {Style.RESET_ALL}"
         )
 
-        transfer = await self.perform_transfer(private_key, address, recipient, amount)
+        transfer = await self.perform_transfer(web3, private_key, address, recipient, amount)
         if not transfer: return False
 
         block_number = transfer["block_number"]
@@ -1797,7 +1797,7 @@ class X1:
 
         return True
     
-    async def process_perform_swap(self, private_key: str, address: str, proxy_url=None):
+    async def process_perform_swap(self, web3: Web3, private_key: str, address: str, proxy_url=None):
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Pairs    :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} X1T to USDT {Style.RESET_ALL}"
@@ -1806,7 +1806,7 @@ class X1:
         pools = await self.pool_by_tokens(address, proxy_url)
         if not pools: return False
 
-        balance = await self.get_token_balance(address)
+        balance = await self.get_token_balance(web3, address)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
@@ -1825,7 +1825,7 @@ class X1:
             f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SWAP_PERCENT}%) {Style.RESET_ALL}"
         )
 
-        swap = await self.perform_swap(private_key, address, pools, amount)
+        swap = await self.perform_swap(web3, private_key, address, pools, amount)
         if not swap: return False
 
         block_number = swap["block_number"]
@@ -1853,7 +1853,7 @@ class X1:
 
         return True
     
-    async def process_perform_add_liquidity(self, private_key: str, address: str, proxy_url=None):
+    async def process_perform_add_liquidity(self, web3: Web3, private_key: str, address: str, proxy_url=None):
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Pools    :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} X1T/USDT {Style.RESET_ALL}"
@@ -1864,7 +1864,7 @@ class X1:
 
         self.log(f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}")
 
-        x1t_balance = await self.get_token_balance(address)
+        x1t_balance = await self.get_token_balance(web3, address)
         self.log(
             f"{Fore.GREEN+Style.BRIGHT}      1. {Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT}{x1t_balance} X1T{Style.RESET_ALL}"
@@ -1877,7 +1877,7 @@ class X1:
             )
             return False
 
-        usdt_balance = await self.get_token_balance(address, self.CONTRACT_ADDRESS["USDT"])
+        usdt_balance = await self.get_token_balance(web3, address, self.CONTRACT_ADDRESS["USDT"])
         self.log(
             f"{Fore.GREEN+Style.BRIGHT}      2. {Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT}{usdt_balance} USDT{Style.RESET_ALL}"
@@ -1903,7 +1903,7 @@ class X1:
             )
             return False
 
-        add_lp = await self.perform_add_liquidity(private_key, address, pools, usdt_balance)
+        add_lp = await self.perform_add_liquidity(web3, private_key, address, pools, usdt_balance)
         if not add_lp: return False
 
         block_number = add_lp["block_number"]
@@ -1931,7 +1931,7 @@ class X1:
 
         return True
     
-    async def process_perform_deploy_token(self, private_key: str, address: str, proxy_url=None):
+    async def process_perform_deploy_token(self, web3: Web3, private_key: str, address: str, proxy_url=None):
         if not await self.process_auth_verify(private_key, address, proxy_url):
             return False
         
@@ -1953,7 +1953,7 @@ class X1:
             f"{Fore.WHITE+Style.BRIGHT} {premint} {token_symbol} {Style.RESET_ALL}"
         )
 
-        balance = await self.get_token_balance(address)
+        balance = await self.get_token_balance(web3, address)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
@@ -1978,7 +1978,7 @@ class X1:
             )
             return False
 
-        deploy = await self.perform_deploy_token(private_key, address, token_params)
+        deploy = await self.perform_deploy_token(web3, private_key, address, token_params)
         if not deploy: return False
 
         token_address = deploy["token_address"]
@@ -2014,18 +2014,7 @@ class X1:
 
         return True
     
-    async def process_complete_quest(self, address: str, quest_id: str, proxy_url=None):
-        complete = await self.complete_quest(address, quest_id, proxy_url)
-        if not complete: return False
-
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Complete :{Style.RESET_ALL}"
-            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
-        )
-
-        return True
-    
-    async def process_handle_quests(self, private_key: str, address: str, proxy_url=None):
+    async def process_handle_quests(self, web3: Web3, private_key: str, address: str, proxy_url=None):
         quests = await self.quests_list(address, proxy_url)
         if not quests: return False
 
@@ -2078,7 +2067,7 @@ class X1:
                     )
                     continue
 
-            if type in ["nomis", "symbiosis"]:
+            if type.lower() in ["nomis", "symbiosis", "7ion"]:
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} Skipped {Style.RESET_ALL}"
@@ -2089,16 +2078,16 @@ class X1:
                 if not await self.process_request_faucet(address, proxy_url): continue
 
             elif type == "transfer":
-                if not await self.process_perform_transfer(private_key, address): continue
+                if not await self.process_perform_transfer(web3, private_key, address): continue
 
             elif type == "swap":
-                if not await self.process_perform_swap(private_key, address, proxy_url): continue
+                if not await self.process_perform_swap(web3, private_key, address, proxy_url): continue
 
             elif type == "liquidity":
-                if not await self.process_perform_add_liquidity(private_key, address, proxy_url): continue
+                if not await self.process_perform_add_liquidity(web3, private_key, address, proxy_url): continue
 
             elif type == "tc":
-                if not await self.process_perform_deploy_token(private_key, address, proxy_url): continue
+                if not await self.process_perform_deploy_token(web3, private_key, address, proxy_url): continue
 
             complete = await self.complete_quest(address, quest_id, proxy_url)
             if not complete: continue
@@ -2122,8 +2111,11 @@ class X1:
 
         if not await self.process_auth_signin(private_key, address, proxy_url): return False
 
+        web3 = await self.get_web3_with_check(proxy_url)
+        if not web3: return False
+
         await self.process_auth_me(address, proxy_url)
-        await self.process_handle_quests(private_key, address, proxy_url)
+        await self.process_handle_quests(web3, private_key, address, proxy_url)
         
     async def main(self):
         try:
@@ -2179,7 +2171,7 @@ class X1:
                     print(
                         f"{Fore.CYAN+Style.BRIGHT}[ Wait for{Style.RESET_ALL}"
                         f"{Fore.WHITE+Style.BRIGHT} {formatted_time} {Style.RESET_ALL}"
-                        f"{Fore.CYAN+Style.BRIGHT}... ]{Style.RESET_ALL}"
+                        f"{Fore.CYAN+Style.BRIGHT}]{Style.RESET_ALL}"
                         f"{Fore.WHITE+Style.BRIGHT} | {Style.RESET_ALL}"
                         f"{Fore.BLUE+Style.BRIGHT}All Accounts Have Been Processed...{Style.RESET_ALL}",
                         end="\r",
