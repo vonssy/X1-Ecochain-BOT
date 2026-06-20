@@ -2024,6 +2024,7 @@ class X1:
             quest_id = quest.get("id")
             title = quest.get("title")
             type = quest.get("type")
+            category = quest.get("category")
             reward = quest.get("reward")
             periodicity = quest.get("periodicity")
             requirements = quest.get("requirements")
@@ -2067,14 +2068,14 @@ class X1:
                     )
                     continue
 
-            if type.lower() in ["nomis", "symbiosis", "7ion"]:
+            if category == "partner":
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} Skipped {Style.RESET_ALL}"
                 )
                 continue
 
-            elif type == "faucet":
+            if type == "faucet":
                 if not await self.process_request_faucet(address, proxy_url): continue
 
             elif type == "transfer":
