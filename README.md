@@ -38,6 +38,8 @@ X1 EcoChain BOT is an automated tool designed to streamline onchain operations a
 - 🔁 **Swap Test Tokens** - Automated swap X1T token to USDT token
 - 💧 **Add Liquidity** - Automated add Liquidity pools
 - ⚡ **Deploy Token** - Automated create & deploy token
+- 🪙 **Coin Flip Game** - Automated playing coin flip game
+- 🎡 **Daily Spin Wheel** - Automated playing spin wheel
 - 👥 **Multi-Account Support** - Manage multiple accounts simultaneously
 
 ## 📋 Requirements
@@ -99,9 +101,10 @@ your_private_key_3
 Create or edit `.env` in the project directory:
 
 ```
-SEND_PERCENT=10 # In percent. 10 = 10% Of Total Balance
-SWAP_PERCENT=10 # In percent. 10 = 10% Of Total Balance
-LIQUIDITY_AMOUNT=1
+SEND_PERCENT=5 # In percent. 5 = 5% Of Total Balance
+SWAP_PERCENT=5 # In percent. 5 = 5% Of Total Balance
+LIQUIDITY_AMOUNT=1 # 1 X1T
+COINFLIP_WAGER=1 # 1 X1T (1, 10, 100, 1000)
 ```
 
 ### Proxy Configuration (Optional)

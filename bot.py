@@ -1,29 +1,67 @@
+import asyncio
+import os
+import random
+import re
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_DOWN, getcontext
+
 from aiohttp import (
+    BasicAuth,
     ClientResponseError,
     ClientSession,
     ClientTimeout,
-    BasicAuth
 )
 from aiohttp_socks import ProxyConnector
-from web3 import Web3, HTTPProvider
-from web3.middleware import ExtraDataToPOAMiddleware
-from web3.exceptions import TransactionNotFound
+from colorama import Fore, Style, init
+from dotenv import load_dotenv
+from eth_abi.abi import encode
 from eth_account import Account
 from eth_account.messages import encode_defunct
-from eth_abi.abi import encode
-from eth_utils import to_hex
-from dotenv import load_dotenv
-from solcx import compile_standard, install_solc
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal, getcontext, ROUND_DOWN
-from colorama import *
-import asyncio, random, time, sys, re, os
+from eth_utils.conversions import to_hex
+from solcx import (
+    compile_standard,
+    get_installed_solc_versions,
+    install_solc,
+    set_solc_version,
+)
+from web3 import HTTPProvider, Web3
+from web3.exceptions import TransactionNotFound
+from web3.middleware import ExtraDataToPOAMiddleware
+
+init(autoreset=True)
 
 load_dotenv()
 
 getcontext().prec = 80
 
-install_solc("0.8.27", show_progress=False)
+SOLC_VERSION = "0.8.27"
+
+ROLL_REWARD_LABELS = {
+    0: "Nothing",
+    1: "10 X1T",
+    2: "25 X1T",
+    3: "100 X1T",
+    4: "1 ECO Point",
+    5: "2 ECO Points",
+    6: "3 ECO Points",
+    7: "5 ECO Points",
+}
+
+try:
+    installed = [str(v) for v in get_installed_solc_versions()]
+    if SOLC_VERSION not in installed:
+        install_solc(SOLC_VERSION, show_progress=False)
+    set_solc_version(SOLC_VERSION, silent=True)
+except Exception as e:
+    try:
+        set_solc_version(SOLC_VERSION, silent=True)
+    except Exception:
+        print(
+            f"{Fore.RED + Style.BRIGHT}Failed to set up solc {SOLC_VERSION}:{Style.RESET_ALL}"
+            f"{Fore.YELLOW + Style.BRIGHT} {e} {Style.RESET_ALL}"
+        )
 
 class X1:
     def __init__(self) -> None:
@@ -39,6 +77,7 @@ class X1:
         self.SEND_PERCENT = Decimal(os.getenv("SEND_PERCENT", "10"))
         self.SWAP_PERCENT = Decimal(os.getenv("SWAP_PERCENT", "10"))
         self.LIQUIDITY_AMOUNT = Decimal(os.getenv("LIQUIDITY_AMOUNT", "1"))
+        self.COINFLIP_WAGER = Decimal(os.getenv("COINFLIP_WAGER", "1"))
         self.DEPLOY_AMOUNT = 100
 
         self.CONTRACT_ADDRESS = {
@@ -51,6 +90,8 @@ class X1:
             "mint": "0x4505eEA72B4D215284305d794CCAc618cd5eA531",
             "deploy": "0x8364089f85CFc7Bb455f1c8F2D924568cE433f9F",
             "payable": "0x34264ec130f9aD5Fc9aa20aB95e42067b1304B5a",
+            "coinflip": "0xaD18687e69523e112d08dd7226ABa3269DA61444",
+            "roll": "0xE6404cA54d11b6d7972e8a48fa522A3AF9F8a596",
         }
 
         self.CONTRACT_ABI = [
@@ -154,6 +195,108 @@ class X1:
                     { "internalType": "uint256", "name": "amount", "type": "uint256" },
                     { "internalType": "bytes", "name": "creationCode", "type": "bytes" }
                 ],
+                "outputs": []
+            },
+            {
+                "type": "function",
+                "name": "createGame",
+                "stateMutability": "payable",
+                "inputs": [
+                    { "name": "choice", "type": "uint8" }
+                ],
+                "outputs": [
+                    { "name": "gameId", "type": "uint256" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "getPlayerGameIds",
+                "stateMutability": "view",
+                "inputs": [
+                    { "name": "player", "type": "address" }
+                ],
+                "outputs": [
+                    { "name": "", "type": "uint256[]" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "games",
+                "stateMutability": "view",
+                "inputs": [
+                    { "name": "", "type": "uint256" }
+                ],
+                "outputs": [
+                    { "name": "player", "type": "address" },
+                    { "name": "wager", "type": "uint96" },
+                    { "name": "payout", "type": "uint96" },
+                    { "name": "requestId", "type": "uint256" },
+                    { "name": "choice", "type": "uint8" },
+                    { "name": "result", "type": "uint8" },
+                    { "name": "status", "type": "uint8" },
+                    { "name": "won", "type": "bool" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "claim",
+                "stateMutability": "nonpayable",
+                "inputs": [
+                    { "name": "gameId", "type": "uint256" }
+                ],
+                "outputs": []
+            },
+            {
+                "type": "function",
+                "name": "canRoll",
+                "stateMutability": "view",
+                "inputs": [
+                    { "name": "player", "type": "address" }
+                ],
+                "outputs": [
+                    { "name": "", "type": "bool" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "roll",
+                "stateMutability": "nonpayable",
+                "inputs": [],
+                "outputs": [
+                    { "name": "rollId", "type": "uint256" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "getPlayerRollIds",
+                "stateMutability": "view",
+                "inputs": [
+                    { "name": "player", "type": "address" }
+                ],
+                "outputs": [
+                    { "name": "", "type": "uint256[]" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "rolls",
+                "stateMutability": "view",
+                "inputs": [
+                    { "name": "", "type": "uint256" }
+                ],
+                "outputs": [
+                    { "name": "player", "type": "address" },
+                    { "name": "requestId", "type": "uint256" },
+                    { "name": "reward", "type": "uint8" },
+                    { "name": "amount", "type": "uint256" },
+                    { "name": "status", "type": "uint8" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "claim",
+                "stateMutability": "nonpayable",
+                "inputs": [],
                 "outputs": []
             }
         ]
@@ -1256,6 +1399,401 @@ class X1:
                 f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
             )
             return None
+
+    async def perform_coinflip_game(self, web3: Web3, private_key: str, address: str):
+        try:
+            amount_to_wei = web3.to_wei(self.COINFLIP_WAGER, "ether")
+
+            choice = random.choice(
+                [
+                    { "id": 0, "name": "Heads" },
+                    { "id": 1, "name": "Tails" },
+                ]
+            )
+
+            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['coinflip'])
+
+            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+
+            coinflip_func = token_contract.functions.createGame(choice["id"])
+
+            estimated_gas = await asyncio.to_thread(
+                coinflip_func.estimate_gas,
+                {
+                    "from": address,
+                    "value": amount_to_wei
+                }
+            )
+
+            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+            base_fee = latest_block["baseFeePerGas"]
+
+            max_priority_fee = web3.to_wei(1, "gwei")
+            max_fee = base_fee + max_priority_fee
+
+            nonce = await asyncio.to_thread(
+                web3.eth.get_transaction_count,
+                address,
+                "pending"
+            )
+
+            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+
+            coinflip_tx = await asyncio.to_thread(
+                coinflip_func.build_transaction,
+                {
+                    "from": address,
+                    "value": amount_to_wei,
+                    "gas": int(estimated_gas * 1.2),
+                    "maxFeePerGas": int(max_fee),
+                    "maxPriorityFeePerGas": int(max_priority_fee),
+                    "nonce": nonce,
+                    "chainId": chain_id,
+                }
+            )
+
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, coinflip_tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+
+            game_ids = await asyncio.to_thread(
+                token_contract.functions.getPlayerGameIds(address).call
+            )
+            if not game_ids:
+                raise Exception("No Games Found for Player")
+            
+            game_id = max(game_ids)
+
+            game_data = await asyncio.to_thread(
+                token_contract.functions.games(game_id).call
+            )
+            if game_data[0].lower() != address.lower():
+                raise Exception(
+                    f"Game Player Mismatch: onchain={game_data[0]} wallet={address}"
+                )
+            if game_data[4] != choice["id"]:
+                raise Exception(
+                    f"Game Choice Mismatch: onchain={game_data[4]} expected={choice['id']}"
+                )
+
+            coinflip_res = await self.coinflip_game_result(web3, address, game_id)
+            if not coinflip_res:
+                raise Exception("Failed to Fetch Coinflip Result")
+
+            return {
+                "tx_hash": tx_hash,
+                "block_number": receipt.blockNumber,
+                "game_id": game_id,
+                "choice": choice["name"],
+                "result": coinflip_res["result"],
+                "payout": coinflip_res["payout"],
+                "is_won": coinflip_res["is_won"],
+                "settled": coinflip_res["settled"]
+            }
+
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def coinflip_game_result(self, web3: Web3, address: str, game_id: int, timeout: int = 30, poll_interval: float = 1.0):
+        try:
+            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['coinflip'])
+
+            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+
+            deadline = time.time() + timeout
+            coinflip_res = None
+
+            while True:
+                coinflip_res = await asyncio.to_thread(
+                    token_contract.functions.games(game_id).call
+                )
+                if coinflip_res[6] >= 2:
+                    break
+                if time.time() >= deadline:
+                    break
+                await asyncio.sleep(poll_interval)
+
+            if address and coinflip_res[0].lower() != address.lower():
+                raise Exception(
+                    f"Game Player Mismatch: onchain={coinflip_res[0]} expected={address}"
+                )
+
+            settled = coinflip_res[6] >= 2
+            payout = web3.from_wei(coinflip_res[2], "ether")
+
+            if settled:
+                result = "Heads" if coinflip_res[5] == 0 else "Tails"
+                is_won = bool(coinflip_res[7])
+            else:
+                result = "Pending"
+                is_won = False
+
+            return {
+                "result": result,
+                "payout": payout,
+                "is_won": is_won,
+                "settled": settled
+            }
+
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def claim_coinflip_reward(self, web3: Web3, private_key: str, address: str, game_id: int):
+        try:
+            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['coinflip'])
+
+            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+
+            claim_func = token_contract.functions.claim(game_id)
+
+            estimated_gas = await asyncio.to_thread(
+                claim_func.estimate_gas,
+                {
+                    "from": address
+                }
+            )
+
+            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+            base_fee = latest_block["baseFeePerGas"]
+
+            max_priority_fee = web3.to_wei(1, "gwei")
+            max_fee = base_fee + max_priority_fee
+
+            nonce = await asyncio.to_thread(
+                web3.eth.get_transaction_count,
+                address,
+                "pending"
+            )
+
+            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+
+            claim_tx = await asyncio.to_thread(
+                claim_func.build_transaction,
+                {
+                    "from": address,
+                    "gas": int(estimated_gas * 1.2),
+                    "maxFeePerGas": int(max_fee),
+                    "maxPriorityFeePerGas": int(max_priority_fee),
+                    "nonce": nonce,
+                    "chainId": chain_id,
+                }
+            )
+
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, claim_tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+
+            return {
+                "tx_hash": tx_hash, 
+                "block_number": receipt.blockNumber
+            }
+
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def daily_roll_status(self, web3: Web3, address: str):
+        try:
+            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['roll'])
+            
+            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+
+            can_roll = await asyncio.to_thread(
+                token_contract.functions.canRoll(address).call
+            )
+
+            return can_roll
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def perform_daily_roll(self, web3: Web3, private_key: str, address: str):
+        try:
+            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['roll'])
+
+            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+
+            roll_func = token_contract.functions.roll()
+
+            estimated_gas = await asyncio.to_thread(
+                roll_func.estimate_gas,
+                {
+                    "from": address
+                }
+            )
+
+            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+            base_fee = latest_block["baseFeePerGas"]
+
+            max_priority_fee = web3.to_wei(1, "gwei")
+            max_fee = base_fee + max_priority_fee
+
+            nonce = await asyncio.to_thread(
+                web3.eth.get_transaction_count,
+                address,
+                "pending"
+            )
+
+            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+
+            roll_tx = await asyncio.to_thread(
+                roll_func.build_transaction,
+                {
+                    "from": address,
+                    "gas": int(estimated_gas * 1.2),
+                    "maxFeePerGas": int(max_fee),
+                    "maxPriorityFeePerGas": int(max_priority_fee),
+                    "nonce": nonce,
+                    "chainId": chain_id,
+                }
+            )
+
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, roll_tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+
+            roll_ids = await asyncio.to_thread(
+                token_contract.functions.getPlayerRollIds(address).call
+            )
+            if not roll_ids:
+                raise Exception("No Rolls Found for Player")
+
+            roll_id = max(roll_ids)
+
+            roll_data = await asyncio.to_thread(
+                token_contract.functions.rolls(roll_id).call
+            )
+            if roll_data[0].lower() != address.lower():
+                raise Exception(
+                    f"Roll Player Mismatch: onchain={roll_data[0]} wallet={address}"
+                )
+
+            roll_res = await self.daily_roll_result(web3, address, roll_id)
+            if not roll_res:
+                raise Exception("Failed to Fetch Roll Result")
+
+            return {
+                "tx_hash": tx_hash,
+                "block_number": receipt.blockNumber,
+                "roll_id": roll_id,
+                "reward": roll_res["reward"],
+                "label": roll_res["label"],
+                "settled": roll_res["settled"],
+            }
+
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+        
+    async def daily_roll_result(self, web3: Web3, address: str, roll_id: int, timeout: int = 30, poll_interval: float = 1.0):
+        try:
+            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['roll'])
+            
+            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+
+            deadline = time.time() + timeout
+            roll_res = None
+
+            while True:
+                roll_res = await asyncio.to_thread(
+                    token_contract.functions.rolls(roll_id).call
+                )
+                if roll_res[4] >= 2:
+                    break
+                if time.time() >= deadline:
+                    break
+                await asyncio.sleep(poll_interval)
+
+            if address and roll_res[0].lower() != address.lower():
+                raise Exception(
+                    f"Roll Player Mismatch: onchain={roll_res[0]} expected={address}"
+                )
+
+            settled = roll_res[4] >= 2
+            reward = roll_res[2]
+
+            return {
+                "reward": reward,
+                "label": ROLL_REWARD_LABELS.get(reward, "Unknown"),
+                "settled": settled
+            }
+
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def claim_roll_reward(self, web3: Web3, private_key: str, address: str):
+        try:
+            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['roll'])
+
+            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+
+            claim_func = token_contract.functions.claim()
+
+            estimated_gas = await asyncio.to_thread(
+                claim_func.estimate_gas,
+                {
+                    "from": address
+                }
+            )
+
+            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+            base_fee = latest_block["baseFeePerGas"]
+
+            max_priority_fee = web3.to_wei(1, "gwei")
+            max_fee = base_fee + max_priority_fee
+
+            nonce = await asyncio.to_thread(
+                web3.eth.get_transaction_count,
+                address,
+                "pending"
+            )
+
+            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+
+            claim_tx = await asyncio.to_thread(
+                claim_func.build_transaction,
+                {
+                    "from": address,
+                    "gas": int(estimated_gas * 1.2),
+                    "maxFeePerGas": int(max_fee),
+                    "maxPriorityFeePerGas": int(max_priority_fee),
+                    "nonce": nonce,
+                    "chainId": chain_id,
+                }
+            )
+
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, claim_tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+
+            return {
+                "tx_hash": tx_hash, 
+                "block_number": receipt.blockNumber
+            }
+
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
         
     def print_question(self):
         while True:
@@ -2022,6 +2560,189 @@ class X1:
         await asyncio.sleep(3)
 
         return True
+
+    async def process_perform_coinflip_game(self, web3: Web3, private_key: str, address: str):
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Wager    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {self.COINFLIP_WAGER} X1T {Style.RESET_ALL}"
+        )
+
+        balance = await self.get_token_balance(web3, address)
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
+        )
+
+        if balance is None:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch X1T Token Balance {Style.RESET_ALL}"
+            )
+            return False
+
+        if balance <= self.COINFLIP_WAGER:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Insufficient X1T Token Balance {Style.RESET_ALL}"
+            )
+            return False
+
+        coinflip = await self.perform_coinflip_game(web3, private_key, address)
+        if not coinflip: return False
+
+        block_number = coinflip["block_number"]
+        tx_hash = coinflip["tx_hash"]
+        game_id = coinflip["game_id"]
+        choice = coinflip["choice"]
+        result = coinflip["result"]
+        payout = coinflip["payout"]
+        is_won = coinflip["is_won"]
+        settled = coinflip["settled"]
+        explorer = self.API_URL["explorer"]
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Game Id  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {game_id} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Choice   :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {choice} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Result   :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {result} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Is Won   :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {is_won} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
+        )
+
+        if is_won and not settled:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Reward   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Still Settled {Style.RESET_ALL}"
+            )
+        elif is_won and settled:
+            claim = await self.claim_coinflip_reward(web3, private_key, address, game_id)
+            if claim:
+                block_number = claim["block_number"]
+                tx_hash = claim["tx_hash"]
+
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Reward   :{Style.RESET_ALL}"
+                    f"{Fore.GREEN+Style.BRIGHT} Claimed {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Payout   :{Style.RESET_ALL}"
+                    f"{Fore.WHITE+Style.BRIGHT} {payout} X1T {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+                    f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+                    f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+                    f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
+                )
+
+        await asyncio.sleep(3)
+
+        return True
+
+    async def process_perform_daily_roll(self, web3: Web3, private_key: str, address: str):
+        can_roll = await self.daily_roll_status(web3, address)
+        if can_roll is None: return False
+
+        if not can_roll:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Already Rolling Today {Style.RESET_ALL}"
+            )
+        else:
+            roll = await self.perform_daily_roll(web3, private_key, address)
+            if not roll: return False
+                
+            block_number = roll["block_number"]
+            tx_hash = roll["tx_hash"]
+            roll_id = roll["roll_id"]
+            reward = roll["reward"]
+            label = roll["label"]
+            settled = roll["settled"]
+            explorer = self.API_URL["explorer"]
+
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Roll Id  :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {roll_id} {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Result   :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {label} {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
+            )
+
+            if reward != 0 and not settled:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Reward   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Still Settled {Style.RESET_ALL}"
+                )
+            elif reward in [1, 2, 3] and settled:
+                claim = await self.claim_roll_reward(web3, private_key, address)
+                if claim:
+                    self.log(
+                        f"{Fore.BLUE+Style.BRIGHT}   Reward   :{Style.RESET_ALL}"
+                        f"{Fore.GREEN+Style.BRIGHT} Claimed {Style.RESET_ALL}"
+                    )
+                    self.log(
+                        f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
+                    )
+                    self.log(
+                        f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
+                    )
+                    self.log(
+                        f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
+                    )
+
+        await asyncio.sleep(3)
+
+        return True
     
     async def process_handle_quests(self, web3: Web3, private_key: str, address: str, proxy_url=None):
         quests = await self.quests_list(address, proxy_url)
@@ -2084,7 +2805,14 @@ class X1:
                 )
                 continue
 
-            if type == "faucet":
+            if type in ["nomis", "domains"]:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Skipped {Style.RESET_ALL}"
+                )
+                continue
+
+            elif type == "faucet":
                 if not await self.process_request_faucet(address, proxy_url): continue
 
             elif type == "transfer":
@@ -2098,6 +2826,12 @@ class X1:
 
             elif type == "tc":
                 if not await self.process_perform_deploy_token(web3, private_key, address, proxy_url): continue
+
+            elif type == "coinflip":
+                if not await self.process_perform_coinflip_game(web3, private_key, address): continue
+
+            elif type == "wheel":
+                if not await self.process_perform_daily_roll(web3, private_key, address): continue
 
             complete = await self.complete_quest(address, quest_id, proxy_url)
             if not complete: continue
