@@ -3,6 +3,7 @@ import importlib
 import os
 import random
 import re
+import secrets
 import sys
 import time
 
@@ -83,6 +84,8 @@ class X1:
         self.LIQUIDITY_AMOUNT = Decimal(os.getenv("LIQUIDITY_AMOUNT", "1"))
         self.COINFLIP_WAGER = Decimal(os.getenv("COINFLIP_WAGER", "1"))
         self.DEPLOY_AMOUNT = 100
+        self.DOMAINS_DURATION = 31536000
+        self.DOMAINS_TLD = "x1eco"
 
         self.ERC20_ABI = [
             {
@@ -219,6 +222,7 @@ class X1:
 
         self.DOMAINS_CONTRACT = {
             "address": "0x3C24a4Ca84f0A4AC95BA4f063a8eEe2803225E9E",
+            "resolver": "0x6494D53006f3B3A96aa86f7762A64510216bE799",
             "abi": [
                 {
                     "type": "function", 
@@ -1676,6 +1680,184 @@ class X1:
             )
             return None
 
+    def generate_domain_label(self):
+        prefixes = ["eco", "neo", "meta", "flux", "nova", "omni", "apex", "volt"]
+        suffixes = ["chain", "node", "net", "fi", "hub", "base", "link", "flow"]
+
+        prefix = random.choice(prefixes)
+        suffix = random.choice(suffixes)
+        number = random.randint(1, 999)
+
+        return f"{prefix}{suffix}{number:03d}"
+
+    @staticmethod
+    def namehash(name: str):
+        node = b"\x00" * 32
+        for label in reversed(name.split(".")):
+            node = Web3.keccak(node + Web3.keccak(text=label))
+        return node
+
+    def build_registration(self, label: str, address: str, duration: int, secret: str):
+        node = self.namehash(f"{label}.{self.DOMAINS_TLD}")
+        selector = Web3.keccak(text="setAddr(bytes32,address)")[:4]
+        set_addr = selector + encode(["bytes32", "address"], [node, address])
+        return (
+            label,
+            address,
+            duration,
+            secret,
+            self.DOMAINS_CONTRACT["resolver"],
+            [set_addr],
+            1,
+            "0x" + "00" * 32,
+        )
+
+    async def domains_quote(self, web3: Web3, label: str, duration: int):
+        try:
+            contract = self._contract(web3, self.DOMAINS_CONTRACT)
+
+            is_valid = await asyncio.to_thread(
+                contract.functions.valid(label).call
+            )
+            if not is_valid:
+                raise Exception(f"Invalid Domain Label: {label}")
+
+            is_available = await asyncio.to_thread(
+                contract.functions.available(label).call
+            )
+
+            price = await asyncio.to_thread(
+                contract.functions.rentPrice(label, duration).call
+            )
+            base, premium = price[0], price[1]
+            total = base + premium
+
+            return {
+                "label": label,
+                "available": bool(is_available),
+                "base": base,
+                "premium": premium,
+                "total": total,
+                "total_ether": web3.from_wei(total, "ether"),
+            }
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def find_available_domain(self, web3: Web3, duration: int, attempts=5):
+        for attempt in range(1, attempts + 1):
+            label = self.generate_domain_label()
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Label    :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {label} ({attempt}/{attempts}) {Style.RESET_ALL}"
+            )
+
+            quote = await self.domains_quote(web3, label, duration)
+            if quote and quote["available"]:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.GREEN+Style.BRIGHT} Available {Style.RESET_ALL}"
+                )
+                return {"label": label, "quote": quote}
+
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Taken {Style.RESET_ALL}"
+            )
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+            f"{Fore.YELLOW+Style.BRIGHT} No Available Domain Found {Style.RESET_ALL}"
+        )
+        return None
+
+    async def perform_domain_commit(self, web3: Web3, private_key: str, address: str, label: str, duration: int):
+        try:
+            contract = self._contract(web3, self.DOMAINS_CONTRACT)
+
+            secret = "0x" + secrets.token_hex(32)
+            registration = self.build_registration(label, address, duration, secret)
+
+            commitment = await asyncio.to_thread(
+                contract.functions.makeCommitment(registration).call
+            )
+
+            commit_tx = await self._send_fn(
+                web3,
+                private_key,
+                address,
+                contract.functions.commit(commitment),
+            )
+            if not commit_tx:
+                raise Exception("Commit Transaction Failed")
+
+            return {
+                "label": label,
+                "duration": duration,
+                "registration": registration,
+                "commitment": commitment,
+                "commit_tx": commit_tx,
+            }
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def perform_domain_register(self, web3: Web3, private_key: str, address: str, registration, total):
+        try:
+            contract = self._contract(web3, self.DOMAINS_CONTRACT)
+
+            commitment = await asyncio.to_thread(
+                contract.functions.makeCommitment(registration).call
+            )
+
+            min_age = await asyncio.to_thread(
+                contract.functions.minCommitmentAge().call
+            )
+
+            committed_at = 0
+            deadline = time.time() + 120
+            while not committed_at:
+                committed_at = await asyncio.to_thread(
+                    contract.functions.commitments(commitment).call
+                )
+                if committed_at:
+                    break
+                if time.time() >= deadline:
+                    raise Exception("Commitment Not Found Onchain")
+                await asyncio.sleep(5)
+
+            ready_at = committed_at + int(min_age)
+            while time.time() < ready_at:
+                await asyncio.sleep(5)
+
+            reg_tx = await self._send_fn(
+                web3,
+                private_key,
+                address,
+                contract.functions.register(registration),
+                value=int(total),
+            )
+            if not reg_tx:
+                raise Exception("Register Transaction Failed")
+
+            return {
+                "tx_hash": reg_tx["tx_hash"],
+                "block_number": reg_tx["block_number"],
+                "receipt": reg_tx["receipt"],
+            }
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
     async def perform_coinflip_game(self, web3: Web3, private_key: str, address: str):
         try:
             amount_to_wei = web3.to_wei(self.COINFLIP_WAGER, "ether")
@@ -2003,7 +2185,6 @@ class X1:
                 f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
                 f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
             )
-            return None
 
     def print_question(self):
         while True:
@@ -2918,6 +3099,72 @@ class X1:
         await asyncio.sleep(3)
 
         return True
+
+    async def process_perform_domain_register(self, web3: Web3, private_key: str, address: str):
+        duration = self.DOMAINS_DURATION
+
+        found = await self.find_available_domain(web3, duration)
+        if not found: return False
+
+        label = found["label"]
+        quote = found["quote"]
+
+        balance = await self.get_token_balance(web3, address)
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {balance} X1T {Style.RESET_ALL}"
+        )
+
+        if balance is None:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch X1T Token Balance {Style.RESET_ALL}"
+            )
+            return False
+
+        if balance <= quote["total_ether"]:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Insufficient X1T Token Balance {Style.RESET_ALL}"
+            )
+            return False
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Domain   :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {label}.{self.DOMAINS_TLD} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Duration :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {duration // 86400} Days {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Price    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {quote['total_ether']} X1T {Style.RESET_ALL}"
+        )
+
+        commit = await self.perform_domain_commit(web3, private_key, address, label, duration)
+        if not commit: return False
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Commit   :{Style.RESET_ALL}"
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
+        )
+        self._log_tx(commit["commit_tx"])
+
+        reg = await self.perform_domain_register(
+            web3, private_key, address, commit["registration"], quote["total"]
+        )
+        if not reg: return False
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
+        )
+        self._log_tx(reg)
+
+        await asyncio.sleep(3)
+
+        return True
     
     async def process_handle_quests(self, web3: Web3, private_key: str, address: str, proxy_url=None):
         quests = await self.quests_list(address, proxy_url)
@@ -3003,11 +3250,7 @@ class X1:
                 if not await self.process_perform_deploy_token(web3, private_key, address, proxy_url): continue
 
             elif type == "domains":
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} This feature is currently under development {Style.RESET_ALL}"
-                )
-                continue
+                if not await self.process_perform_domain_register(web3, private_key, address): continue
 
             elif type == "coinflip":
                 if not await self.process_perform_coinflip_game(web3, private_key, address): continue
