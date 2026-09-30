@@ -38,7 +38,7 @@ X1 EcoChain BOT is an automated tool designed to streamline onchain operations a
 - **Swap Test Tokens** - Automated swap X1T token to USDT token
 - **Add Liquidity** - Automated add Liquidity pools
 - **Deploy Token** - Automated create & deploy token
-- **Register .x1eco Domain** - Automated registering .x1eco domain name `Under Develop`
+- **Register .x1eco Domain** - Automated registering .x1eco domain name
 - **Coin Flip Game** - Automated playing coin flip game
 - **Daily Spin Wheel** - Automated playing spin wheel
 - **Enter Daily Jackpot** - Automated entering daily jackpot
