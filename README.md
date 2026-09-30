@@ -28,19 +28,21 @@ X1 EcoChain BOT is an automated tool designed to streamline onchain operations a
 
 ## ✨ Features
 
-- 🔄 **Automated Account Management** - Retrieve account information automatically
-- 🌐 **Flexible Proxy Support** - Run with or without proxy configuration
-- 🔀 **Smart Proxy Rotation** - Automatic rotation of invalid proxies
-- ⏰ **Daily Check-In** – Automated perform daily check-in
-- 📜 **Quests Completion** – Automated complete available quests
-- 🚰 **Claim Test Token** - Automated claim daily XIT Faucet
-- 💸 **Send Test Tokens** - Automated transfer X1T token to random recipient
-- 🔁 **Swap Test Tokens** - Automated swap X1T token to USDT token
-- 💧 **Add Liquidity** - Automated add Liquidity pools
-- ⚡ **Deploy Token** - Automated create & deploy token
-- 🪙 **Coin Flip Game** - Automated playing coin flip game
-- 🎡 **Daily Spin Wheel** - Automated playing spin wheel
-- 👥 **Multi-Account Support** - Manage multiple accounts simultaneously
+- > **Automated Account Management** - Retrieve account information automatically
+- > **Flexible Proxy Support** - Run with or without proxy configuration
+- > **Smart Proxy Rotation** - Automatic rotation of invalid proxies
+- > **Daily Check-In** – Automated perform daily check-in
+- > **Quests Completion** – Automated complete available quests
+- > **Claim Test Token** - Automated claim daily XIT Faucet
+- > **Send Test Tokens** - Automated transfer X1T token to random recipient
+- > **Swap Test Tokens** - Automated swap X1T token to USDT token
+- > **Add Liquidity** - Automated add Liquidity pools
+- > **Deploy Token** - Automated create & deploy token
+- > **Register .x1eco Domain** - Automated registering .x1eco domain name `Under Develop`
+- > **Coin Flip Game** - Automated playing coin flip game
+- > **Daily Spin Wheel** - Automated playing spin wheel
+- > **Enter Daily Jackpot** - Automated entering daily jackpot
+- > **Multi-Account Support** - Manage multiple accounts simultaneously
 
 ## 📋 Requirements
 
