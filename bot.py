@@ -1,17 +1,21 @@
 import asyncio
+import importlib
 import os
 import random
 import re
 import sys
 import time
+
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN, getcontext
+from urllib.parse import unquote, urlparse
 
 from aiohttp import (
     BasicAuth,
     ClientResponseError,
     ClientSession,
     ClientTimeout,
+    TCPConnector
 )
 from aiohttp_socks import ProxyConnector
 from colorama import Fore, Style, init
@@ -591,19 +595,6 @@ class X1:
         self.proxy_index = 0
         self.account_proxies = {}
         self.accounts = {}
-        
-        self.USER_AGENTS = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 OPR/117.0.0.0"
-        ]
 
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -662,11 +653,41 @@ class X1:
             self.proxies = []
 
     def check_proxy_schemes(self, proxies):
-        schemes = ["http://", "https://", "socks4://", "socks5://"]
-        if any(proxies.startswith(scheme) for scheme in schemes):
-            return proxies
-        return f"http://{proxies}"
-    
+        proxy = proxies.strip()
+        if not proxy:
+            raise ValueError("Proxy URL is empty.")
+
+        if "://" not in proxy:
+            return f"http://{proxy}"
+
+        scheme = proxy.split("://", 1)[0].lower()
+        supported_schemes = {
+            "http", "https", "socks4", "socks4a", "socks5", "socks5h"
+        }
+        if scheme not in supported_schemes:
+            raise ValueError(f"Unsupported Proxy Type: {scheme}")
+
+        return proxy
+
+    def get_proxy_scheme(self, proxy):
+        return urlparse(proxy).scheme.lower()
+
+    def get_web3_proxy(self, proxy=None):
+        if not proxy:
+            return None
+
+        proxy = self.check_proxy_schemes(proxy)
+        scheme = self.get_proxy_scheme(proxy)
+        if scheme in {"socks4", "socks4a", "socks5", "socks5h"}:
+            try:
+                importlib.import_module("socks")
+            except ImportError as exc:
+                raise RuntimeError(
+                    "SOCKS proxy requires PySocks. Install requests[socks]."
+                ) from exc
+
+        return proxy
+
     def get_next_proxy_for_account(self, account):
         if account not in self.account_proxies:
             if not self.proxies:
@@ -686,40 +707,111 @@ class X1:
     
     def build_proxy_config(self, proxy=None):
         if not proxy:
-            return None, None, None
+            return TCPConnector(), None, None
 
-        if proxy.startswith("socks"):
-            connector = ProxyConnector.from_url(proxy)
+        scheme = self.get_proxy_scheme(proxy)
+        if scheme in {"socks4", "socks4a", "socks5", "socks5h"}:
+            connector_proxy = re.sub(
+                r"^socks4a://", "socks4://", proxy, flags=re.IGNORECASE
+            )
+            connector_proxy = re.sub(
+                r"^socks5h://", "socks5://", connector_proxy, flags=re.IGNORECASE
+            )
+            connector = ProxyConnector.from_url(
+                connector_proxy,
+                rdns=scheme in {"socks4a", "socks5h"},
+            )
             return connector, None, None
 
-        elif proxy.startswith("http"):
-            match = re.match(r"http://(.*?):(.*?)@(.*)", proxy)
-            if match:
-                username, password, host_port = match.groups()
-                clean_url = f"http://{host_port}"
-                auth = BasicAuth(username, password)
-                return None, clean_url, auth
-            else:
-                return None, proxy, None
+        if scheme not in {"http", "https"}:
+            raise ValueError(f"Unsupported Proxy Type: {scheme}")
+
+        parsed = urlparse(proxy)
+        if parsed.username is not None:
+            username = unquote(parsed.username)
+            password = unquote(parsed.password or "")
+            host_port = parsed.netloc.rsplit("@", 1)[-1]
+            clean_url = f"{scheme}://{host_port}"
+            return TCPConnector(), clean_url, BasicAuth(username, password)
+
+        return TCPConnector(), proxy, None
     
     def display_proxy(self, proxy_url=None):
         if not proxy_url: return "No Proxy"
 
-        proxy_url = re.sub(r"^(http|https|socks4|socks5)://", "", proxy_url)
+        proxy_url = re.sub(
+            r"^(?:https?|socks4a?|socks5h?)://",
+            "",
+            proxy_url,
+            flags=re.IGNORECASE,
+        )
 
         if "@" in proxy_url:
-            proxy_url = proxy_url.split("@", 1)[1]
+            proxy_url = proxy_url.rsplit("@", 1)[-1]
 
         return proxy_url
-    
-    def get_next_run_time(self, anchor_minute=1):
-        now = datetime.now(timezone.utc)
-        today_target = now.replace(hour=0, minute=anchor_minute, second=0, microsecond=0)
 
-        if today_target > now:
-            return today_target
-        else:
-            return today_target + timedelta(days=1)
+    def get_next_run_time(self, anchor_minute=1):
+            now = datetime.now(timezone.utc)
+            today_target = now.replace(hour=0, minute=anchor_minute, second=0, microsecond=0)
+    
+            if today_target > now:
+                return today_target
+            else:
+                return today_target + timedelta(days=1)
+
+    def generate_user_agent(self):
+        windows_os = [
+            "Windows NT 10.0; Win64; x64",
+            "Windows NT 11.0; Win64; x64",
+        ]
+        mac_os = [
+            "Macintosh; Intel Mac OS X 10_15_7",
+            "Macintosh; Intel Mac OS X 11_7",
+            "Macintosh; Intel Mac OS X 12_7",
+            "Macintosh; Intel Mac OS X 13_6",
+            "Macintosh; Intel Mac OS X 14_5",
+        ]
+        linux_os = [
+            "X11; Linux x86_64",
+            "X11; Ubuntu; Linux x86_64",
+            "X11; Fedora; Linux x86_64",
+        ]
+
+        os_string = random.choice(windows_os + mac_os + linux_os)
+        major = random.randint(120, 140)
+        chrome = f"{major}.0.{random.randint(6000, 6999)}.{random.randint(100, 250)}"
+        firefox = f"{random.randint(120, 140)}.0"
+
+        browser = random.choice(["chrome", "firefox", "safari", "edge", "opera"])
+
+        if browser == "firefox":
+            return (
+                f"Mozilla/5.0 ({os_string}; rv:{firefox}) "
+                f"Gecko/20100101 Firefox/{firefox}"
+            )
+
+        if browser == "safari":
+            version = f"{random.randint(15, 18)}.{random.randint(0, 6)}"
+            safari_os = random.choice(mac_os)
+            return (
+                f"Mozilla/5.0 ({safari_os}) "
+                f"AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                f"Version/{version} Safari/605.1.15"
+            )
+
+        ua = (
+            f"Mozilla/5.0 ({os_string}) "
+            f"AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"Chrome/{chrome} Safari/537.36"
+        )
+
+        if browser == "edge":
+            ua += f" Edg/{chrome}"
+        elif browser == "opera":
+            ua += f" OPR/{major}.{random.randint(0, 40)}.0.0"
+
+        return ua
     
     def initialize_headers(self, address: str, headers_type="base"):
         if headers_type == "base":
@@ -822,7 +914,369 @@ class X1:
             return signature
         except Exception as e:
             raise Exception(f"Generate Signature Failed: {str(e)}")
+
+    async def get_web3_with_check(self, proxy_url=None, retries=5, timeout=60):
+        try:
+            web3_proxy = self.get_web3_proxy(proxy_url)
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} Invalid Web3 Proxy Configuration {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+        request_kwargs: dict = {
+            "timeout": timeout,
+            "proxies": {
+                "http": web3_proxy,
+                "https": web3_proxy,
+            },
+        }
+
+        for attempt in range(retries):
+            try:
+                provider = HTTPProvider(
+                    self.API_URL["rpc"],
+                    request_kwargs=request_kwargs
+                )
+                web3 = Web3(provider)
+
+                web3.middleware_onion.inject(
+                    ExtraDataToPOAMiddleware, 
+                    layer=0
+                )
+
+                await asyncio.to_thread(lambda: web3.eth.block_number)
+                return web3
+            except Exception as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(5)
+                    continue
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} Failed to Connect RPC {Style.RESET_ALL}"
+                )
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+                return None
         
+    async def get_token_balance(self, web3: Web3, address: str, asset=None):
+        try:
+            if asset is None:
+                balance = await asyncio.to_thread(
+                    web3.eth.get_balance,
+                    address
+                )
+            else:
+                token_contract = self._token_contract(web3, asset)
+
+                balance = await asyncio.to_thread(
+                    token_contract.functions.balanceOf(address).call
+                )
+
+            return web3.from_wei(balance, "ether")
+
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def send_raw_transaction_with_retries(self, web3: Web3, private_key: str, tx, retries=5):
+        for attempt in range(retries):
+            try:
+                signed_tx = web3.eth.account.sign_transaction(tx, private_key)
+
+                raw_tx = await asyncio.to_thread(
+                    web3.eth.send_raw_transaction,
+                    signed_tx.raw_transaction
+                )
+
+                return web3.to_hex(raw_tx)
+            except TransactionNotFound:
+                pass
+            except Exception as e:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW + Style.BRIGHT} [Attempt {attempt + 1}] Send TX Error: {str(e)} {Style.RESET_ALL}"
+                )
+            await asyncio.sleep(2 ** attempt)
+        raise Exception("Transaction Hash Not Found After Maximum Retries")
+
+    async def wait_for_receipt_with_retries(self, web3: Web3, tx_hash: str, retries=5):
+        for attempt in range(retries):
+            try:
+                receipt = await asyncio.to_thread(
+                    web3.eth.wait_for_transaction_receipt,
+                    tx_hash,
+                    60
+                )
+                return receipt
+            except TransactionNotFound:
+                pass
+            except Exception as e:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW + Style.BRIGHT} [Attempt {attempt + 1}] Wait for Receipt Error: {str(e)} {Style.RESET_ALL}"
+                )
+            await asyncio.sleep(2 ** attempt)
+        raise Exception("Transaction Receipt Not Found After Maximum Retries")
+
+    def _contract(self, web3: Web3, contract):
+        contract_address = web3.to_checksum_address(contract["address"])
+        return web3.eth.contract(address=contract_address, abi=contract["abi"])
+
+    def _token_contract(self, web3: Web3, address):
+        contract_address = web3.to_checksum_address(address)
+        return web3.eth.contract(address=contract_address, abi=self.ERC20_ABI)
+
+    async def _fee_params(self, web3: Web3, address: str):
+        latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+        base_fee = latest_block["baseFeePerGas"]
+        max_priority_fee = web3.to_wei(1, "gwei")
+        max_fee = base_fee + max_priority_fee
+        nonce = await asyncio.to_thread(web3.eth.get_transaction_count, address, "pending")
+        chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+        return int(max_fee), int(max_priority_fee), nonce, chain_id
+
+    async def _send_fn(self, web3: Web3, private_key: str, address: str, fn, value=0):
+        try:
+            estimate_tx = {"from": address}
+            if value:
+                estimate_tx["value"] = value
+            estimated_gas = await asyncio.to_thread(fn.estimate_gas, estimate_tx)
+            max_fee, max_priority_fee, nonce, chain_id = await self._fee_params(web3, address)
+            build_tx = {
+                "from": address,
+                "gas": int(estimated_gas * 1.2),
+                "maxFeePerGas": max_fee,
+                "maxPriorityFeePerGas": max_priority_fee,
+                "nonce": nonce,
+                "chainId": chain_id,
+            }
+            if value:
+                build_tx["value"] = value
+            tx = await asyncio.to_thread(fn.build_transaction, build_tx)
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+            return {"tx_hash": tx_hash, "block_number": receipt.blockNumber, "receipt": receipt}
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    def _log_tx(self, tx):
+        explorer = self.API_URL["explorer"]
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {tx['block_number']} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {tx['tx_hash']} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx['tx_hash']} {Style.RESET_ALL}"
+        )
+    
+    async def perform_transfer(self, web3: Web3, private_key: str, address: str, recipient: str, amount: Decimal):
+        try:
+            amount_to_wei = web3.to_wei(amount, "ether")
+
+            max_fee, max_priority_fee, nonce, chain_id = await self._fee_params(web3, address)
+            
+            transfer_tx = {
+                "from": web3.to_checksum_address(address),
+                "to": web3.to_checksum_address(recipient),
+                "value": amount_to_wei,
+                "gas": 21000,
+                "maxFeePerGas": int(max_fee),
+                "maxPriorityFeePerGas": int(max_priority_fee),
+                "nonce": nonce,
+                "chainId": chain_id,
+            }
+
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, transfer_tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+
+            return {
+                "tx_hash": tx_hash, 
+                "block_number": receipt.blockNumber
+            }
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+        
+    def calc_amount_out_min(self, pools: dict, token_in_symbol: str, amount_in_wei: int):
+        try:
+            pool = max(pools["data"]["pools"], key=lambda p: int(p["liquidity"]))
+
+            token0 = pool["token0"]["symbol"]
+            token1 = pool["token1"]["symbol"]
+
+            sqrt_price_x96 = Decimal(pool["sqrtPrice"])
+            fee_tier = Decimal(pool["feeTier"])
+
+            price = (sqrt_price_x96 ** 2) / (Decimal(2) ** 192)
+
+            amount_in = Decimal(amount_in_wei)
+
+            if token_in_symbol == token0:
+                amount_out = amount_in * price
+                
+            elif token_in_symbol == token1:
+                amount_out = amount_in / price
+                
+            else:
+                raise ValueError("Token not found in pool")
+
+            fee_multiplier = Decimal(1) - (fee_tier / Decimal(1_000_000))
+            amount_out *= fee_multiplier
+
+            slippage_multiplier = Decimal(1) - (Decimal(2) / Decimal(100))
+            amount_out *= slippage_multiplier
+
+            amount_out_wei = amount_out.to_integral_value(rounding=ROUND_DOWN)
+
+            return int(amount_out_wei)
+        except Exception as e:
+            raise Exception(f"Failed to Calculate Amount Out Min: {str(e)}")
+        
+    async def perform_swap(self, web3: Web3, private_key: str, address: str, pools: dict, amount: Decimal):
+        try:
+            token_in = web3.to_checksum_address(self.WX1T_CONTRACT["address"])
+            token_out = web3.to_checksum_address(self.USDT_CONTRACT["address"])
+
+            deadline = int(time.time()) + 600
+
+            amount_in = web3.to_wei(amount, "ether")
+
+            amount_out_min_wei = self.calc_amount_out_min(pools, "WX1T", amount_in)
+
+            swap_params = {
+                "tokenIn": token_in,
+                "tokenOut": token_out,
+                "fee": 500,
+                "recipient": address,
+                "deadline": deadline,
+                "amountIn": amount_in,
+                "amountOutMinimum": amount_out_min_wei,
+                "sqrtPriceLimitX96": 0
+            }
+
+            contract = self._contract(web3, self.SWAP_CONTRACT)
+            
+            return await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.exactInputSingle(swap_params), 
+                value=amount_in
+            )
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+        
+    async def approving_token(self, web3: Web3, private_key: str, address: str, asset: str, spender: str, amount_to_wei: int):
+        try:
+            token_contract = self._token_contract(web3, asset)
+            allowance = await asyncio.to_thread(
+                token_contract.functions.allowance(address, spender).call
+            )
+
+            if allowance < amount_to_wei:
+                tx = await self._send_fn(
+                    web3, 
+                    private_key, 
+                    address, 
+                    token_contract.functions.approve(spender, 2**256 - 1)
+                )
+                if not tx: raise Exception("Approve Transaction Failed")
+
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.GREEN+Style.BRIGHT} Token Approved {Style.RESET_ALL}"
+                )
+                self._log_tx(tx)
+                
+                await asyncio.sleep(random.uniform(3.0, 5.0))
+
+            return True
+        except Exception as e:
+            raise Exception(f"Approving Token Contract Failed: {str(e)}")
+        
+    async def perform_add_liquidity(self, web3: Web3, private_key: str, address: str, pools: dict, usdt_balance: float):
+        try:
+            token0 = web3.to_checksum_address(self.USDT_CONTRACT["address"])
+            token1 = web3.to_checksum_address(self.WX1T_CONTRACT["address"])
+
+            amount1_desired = web3.to_wei(self.LIQUIDITY_AMOUNT, "ether")
+
+            amount0_desired = self.calc_amount_out_min(pools, "WX1T", amount1_desired)
+            amount0_desired_from_wei = web3.from_wei(amount0_desired, "ether")
+
+            self.log(
+                f"{Fore.GREEN+Style.BRIGHT}      2. {Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT}{amount0_desired_from_wei} USDT{Style.RESET_ALL}"
+            )
+
+            if usdt_balance < amount0_desired_from_wei:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Insufficient USDT Token Balance {Style.RESET_ALL}"
+                )
+                return False
+
+            await self.approving_token(web3, private_key, address, token0, self.MINT_CONTRACT["address"], amount0_desired)
+
+            deadline = int(time.time()) + 600
+
+            mint_params = {
+                "token0": token0,
+                "token1": token1,
+                "fee": 500,
+                "tickLower": -887270,
+                "tickUpper": 887270,
+                "amount0Desired": amount0_desired,
+                "amount1Desired": amount1_desired,
+                "amount0Min": 0,
+                "amount1Min": 0,
+                "recipient": address,
+                "deadline": deadline
+            }
+
+            contract = self._contract(web3, self.MINT_CONTRACT)
+
+            return await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.mint(mint_params), 
+                value=amount1_desired
+            )
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
     def generate_token_params(self):
         PREFIXES = [
             "Eco", "Neo", "Meta", "Flux", "Nova", "Omni", "Apex", "Volt",
@@ -1184,358 +1638,6 @@ class X1:
         encoded_args = self.encode_constructor_args(features, addresses)
 
         return "0x" + compiled["bytecode"] + encoded_args[2:]
-        
-    async def get_web3_with_check(self, proxy_url=None, retries=5, timeout=60):
-        request_kwargs = {
-            "timeout": timeout
-        }
-
-        if proxy_url:
-            request_kwargs["proxies"] = {
-                "http": proxy_url, "https": proxy_url,
-            }
-        else:
-            request_kwargs["proxies"] = {
-                "http": None, "https": None,
-            }
-
-        for attempt in range(retries):
-            try:
-                provider = HTTPProvider(
-                    self.API_URL['rpc'],
-                    request_kwargs=request_kwargs
-                )
-                web3 = Web3(provider)
-
-                web3.middleware_onion.inject(
-                    ExtraDataToPOAMiddleware, 
-                    layer=0
-                )
-
-                await asyncio.to_thread(lambda: web3.eth.block_number)
-                return web3
-            except Exception as e:
-                if attempt < retries - 1:
-                    await asyncio.sleep(5)
-                    continue
-                self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Status  :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} Failed to Connect RPC {Style.RESET_ALL}"
-                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-                )
-                return None
-
-    async def get_token_balance(self, web3: Web3, address: str, asset=None):
-        try:
-            if asset is None:
-                balance = await asyncio.to_thread(
-                    web3.eth.get_balance,
-                    address
-                )
-            else:
-                token_contract = self._token_contract(web3, asset)
-
-                balance = await asyncio.to_thread(
-                    token_contract.functions.balanceOf(address).call
-                )
-
-            return web3.from_wei(balance, "ether")
-
-        except Exception as e:
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-            )
-            return None
-
-    async def send_raw_transaction_with_retries(self, web3: Web3, private_key: str, tx, retries=5):
-        for attempt in range(retries):
-            try:
-                signed_tx = web3.eth.account.sign_transaction(tx, private_key)
-
-                raw_tx = await asyncio.to_thread(
-                    web3.eth.send_raw_transaction,
-                    signed_tx.raw_transaction
-                )
-
-                return web3.to_hex(raw_tx)
-            except TransactionNotFound:
-                pass
-            except Exception as e:
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
-                    f"{Fore.YELLOW + Style.BRIGHT} [Attempt {attempt + 1}] Send TX Error: {str(e)} {Style.RESET_ALL}"
-                )
-            await asyncio.sleep(2 ** attempt)
-        raise Exception("Transaction Hash Not Found After Maximum Retries")
-
-    async def wait_for_receipt_with_retries(self, web3: Web3, tx_hash: str, retries=5):
-        for attempt in range(retries):
-            try:
-                receipt = await asyncio.to_thread(
-                    web3.eth.wait_for_transaction_receipt,
-                    tx_hash,
-                    60
-                )
-                return receipt
-            except TransactionNotFound:
-                pass
-            except Exception as e:
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
-                    f"{Fore.YELLOW + Style.BRIGHT} [Attempt {attempt + 1}] Wait for Receipt Error: {str(e)} {Style.RESET_ALL}"
-                )
-            await asyncio.sleep(2 ** attempt)
-        raise Exception("Transaction Receipt Not Found After Maximum Retries")
-
-    def _contract(self, web3: Web3, contract):
-        contract_address = web3.to_checksum_address(contract["address"])
-        return web3.eth.contract(address=contract_address, abi=contract["abi"])
-
-    def _token_contract(self, web3: Web3, address):
-        contract_address = web3.to_checksum_address(address)
-        return web3.eth.contract(address=contract_address, abi=self.ERC20_ABI)
-
-    async def _fee_params(self, web3: Web3, address: str):
-        latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-        base_fee = latest_block["baseFeePerGas"]
-        max_priority_fee = web3.to_wei(1, "gwei")
-        max_fee = base_fee + max_priority_fee
-        nonce = await asyncio.to_thread(web3.eth.get_transaction_count, address, "pending")
-        chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-        return int(max_fee), int(max_priority_fee), nonce, chain_id
-
-    async def _send_fn(self, web3: Web3, private_key: str, address: str, fn, value=0):
-        try:
-            estimate_tx = {"from": address}
-            if value:
-                estimate_tx["value"] = value
-            estimated_gas = await asyncio.to_thread(fn.estimate_gas, estimate_tx)
-            max_fee, max_priority_fee, nonce, chain_id = await self._fee_params(web3, address)
-            build_tx = {
-                "from": address,
-                "gas": int(estimated_gas * 1.2),
-                "maxFeePerGas": max_fee,
-                "maxPriorityFeePerGas": max_priority_fee,
-                "nonce": nonce,
-                "chainId": chain_id,
-            }
-            if value:
-                build_tx["value"] = value
-            tx = await asyncio.to_thread(fn.build_transaction, build_tx)
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
-            return {"tx_hash": tx_hash, "block_number": receipt.blockNumber, "receipt": receipt}
-        except Exception as e:
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-            )
-            return None
-
-    def _log_tx(self, tx):
-        explorer = self.API_URL["explorer"]
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {tx['block_number']} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {tx['tx_hash']} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx['tx_hash']} {Style.RESET_ALL}"
-        )
-    
-    async def perform_transfer(self, web3: Web3, private_key: str, address: str, recipient: str, amount: Decimal):
-        try:
-            amount_to_wei = web3.to_wei(amount, "ether")
-
-            max_fee, max_priority_fee, nonce, chain_id = await self._fee_params(web3, address)
-            
-            transfer_tx = {
-                "from": web3.to_checksum_address(address),
-                "to": web3.to_checksum_address(recipient),
-                "value": amount_to_wei,
-                "gas": 21000,
-                "maxFeePerGas": int(max_fee),
-                "maxPriorityFeePerGas": int(max_priority_fee),
-                "nonce": nonce,
-                "chainId": chain_id,
-            }
-
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, transfer_tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
-
-            return {
-                "tx_hash": tx_hash, 
-                "block_number": receipt.blockNumber
-            }
-        except Exception as e:
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-            )
-            return None
-        
-    def calc_amount_out_min(self, pools: dict, token_in_symbol: str, amount_in_wei: int):
-        try:
-            pool = max(pools["data"]["pools"], key=lambda p: int(p["liquidity"]))
-
-            token0 = pool["token0"]["symbol"]
-            token1 = pool["token1"]["symbol"]
-
-            sqrt_price_x96 = Decimal(pool["sqrtPrice"])
-            fee_tier = Decimal(pool["feeTier"])
-
-            price = (sqrt_price_x96 ** 2) / (Decimal(2) ** 192)
-
-            amount_in = Decimal(amount_in_wei)
-
-            if token_in_symbol == token0:
-                amount_out = amount_in * price
-                
-            elif token_in_symbol == token1:
-                amount_out = amount_in / price
-                
-            else:
-                raise ValueError("Token not found in pool")
-
-            fee_multiplier = Decimal(1) - (fee_tier / Decimal(1_000_000))
-            amount_out *= fee_multiplier
-
-            slippage_multiplier = Decimal(1) - (Decimal(2) / Decimal(100))
-            amount_out *= slippage_multiplier
-
-            amount_out_wei = amount_out.to_integral_value(rounding=ROUND_DOWN)
-
-            return int(amount_out_wei)
-        except Exception as e:
-            raise Exception(f"Failed to Calculate Amount Out Min: {str(e)}")
-        
-    async def perform_swap(self, web3: Web3, private_key: str, address: str, pools: dict, amount: Decimal):
-        try:
-            token_in = web3.to_checksum_address(self.WX1T_CONTRACT["address"])
-            token_out = web3.to_checksum_address(self.USDT_CONTRACT["address"])
-
-            deadline = int(time.time()) + 600
-
-            amount_in = web3.to_wei(amount, "ether")
-
-            amount_out_min_wei = self.calc_amount_out_min(pools, "WX1T", amount_in)
-
-            swap_params = {
-                "tokenIn": token_in,
-                "tokenOut": token_out,
-                "fee": 500,
-                "recipient": address,
-                "deadline": deadline,
-                "amountIn": amount_in,
-                "amountOutMinimum": amount_out_min_wei,
-                "sqrtPriceLimitX96": 0
-            }
-
-            contract = self._contract(web3, self.SWAP_CONTRACT)
-            
-            return await self._send_fn(
-                web3, 
-                private_key, 
-                address, 
-                contract.functions.exactInputSingle(swap_params), 
-                value=amount_in
-            )
-        except Exception as e:
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Message :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-            )
-            return None
-        
-    async def approving_token(self, web3: Web3, private_key: str, address: str, asset: str, spender: str, amount_to_wei: int):
-        try:
-            token_contract = self._token_contract(web3, asset)
-            allowance = await asyncio.to_thread(
-                token_contract.functions.allowance(address, spender).call
-            )
-
-            if allowance < amount_to_wei:
-                tx = await self._send_fn(
-                    web3, 
-                    private_key, 
-                    address, 
-                    token_contract.functions.approve(spender, 2**256 - 1)
-                )
-                if not tx: raise Exception("Approve Transaction Failed")
-
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.GREEN+Style.BRIGHT} Token Approved {Style.RESET_ALL}"
-                )
-                self._log_tx(tx)
-                
-                await asyncio.sleep(random.uniform(3.0, 5.0))
-
-            return True
-        except Exception as e:
-            raise Exception(f"Approving Token Contract Failed: {str(e)}")
-        
-    async def perform_add_liquidity(self, web3: Web3, private_key: str, address: str, pools: dict, usdt_balance: float):
-        try:
-            token0 = web3.to_checksum_address(self.USDT_CONTRACT["address"])
-            token1 = web3.to_checksum_address(self.WX1T_CONTRACT["address"])
-
-            amount1_desired = web3.to_wei(self.LIQUIDITY_AMOUNT, "ether")
-
-            amount0_desired = self.calc_amount_out_min(pools, "WX1T", amount1_desired)
-            amount0_desired_from_wei = web3.from_wei(amount0_desired, "ether")
-
-            self.log(
-                f"{Fore.GREEN+Style.BRIGHT}      2. {Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT}{amount0_desired_from_wei} USDT{Style.RESET_ALL}"
-            )
-
-            if usdt_balance < amount0_desired_from_wei:
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} Insufficient USDT Token Balance {Style.RESET_ALL}"
-                )
-                return False
-
-            await self.approving_token(web3, private_key, address, token0, self.MINT_CONTRACT["address"], amount0_desired)
-
-            deadline = int(time.time()) + 600
-
-            mint_params = {
-                "token0": token0,
-                "token1": token1,
-                "fee": 500,
-                "tickLower": -887270,
-                "tickUpper": 887270,
-                "amount0Desired": amount0_desired,
-                "amount1Desired": amount1_desired,
-                "amount0Min": 0,
-                "amount1Min": 0,
-                "recipient": address,
-                "deadline": deadline
-            }
-
-            contract = self._contract(web3, self.MINT_CONTRACT)
-
-            return await self._send_fn(
-                web3, 
-                private_key, 
-                address, 
-                contract.functions.mint(mint_params), 
-                value=amount1_desired
-            )
-        except Exception as e:
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Message :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-            )
-            return None
         
     async def perform_deploy_token(self, web3: Web3, private_key: str, address: str, token_params: dict):
         try:
@@ -2978,7 +3080,7 @@ class X1:
 
                     if address not in self.accounts:
                         self.accounts[address] = {
-                            "user_agent": random.choice(self.USER_AGENTS),
+                            "user_agent": self.generate_user_agent(),
                             "tokens": {}
                         }
 
