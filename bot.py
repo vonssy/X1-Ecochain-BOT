@@ -80,21 +80,7 @@ class X1:
         self.COINFLIP_WAGER = Decimal(os.getenv("COINFLIP_WAGER", "1"))
         self.DEPLOY_AMOUNT = 100
 
-        self.CONTRACT_ADDRESS = {
-            "WX1T": "0xe2ED17Ae5e68863E77899205a83A8f1E138c608f",
-            "USDT": "0xd127BA1f0EfA2c5c7d9e6E7339DBafe2A6b1EAeC"
-        }
-
-        self.CONTRACT_ROUTER = {
-            "swap": "0x1BEC6C32bAA0881EA3f3Ec5e95d10EF8a252589B",
-            "mint": "0x4505eEA72B4D215284305d794CCAc618cd5eA531",
-            "deploy": "0x8364089f85CFc7Bb455f1c8F2D924568cE433f9F",
-            "payable": "0x34264ec130f9aD5Fc9aa20aB95e42067b1304B5a",
-            "coinflip": "0xaD18687e69523e112d08dd7226ABa3269DA61444",
-            "roll": "0xE6404cA54d11b6d7972e8a48fa522A3AF9F8a596",
-        }
-
-        self.CONTRACT_ABI = [
+        self.ERC20_ABI = [
             {
                 "type": "function",
                 "name": "balanceOf",
@@ -129,179 +115,473 @@ class X1:
                 "outputs": [
                     { "internalType": "bool", "name": "", "type": "bool" }
                 ]
-            },
-            {
-                "type": "function",
-                "name": "exactInputSingle",
-                "stateMutability": "payable",
-                "inputs": [
-                    {
-                        "internalType": "struct ISwapRouter.ExactInputSingleParams",
-                        "name": "params",
-                        "type": "tuple",
-                        "components": [
-                            { "internalType": "address", "name": "tokenIn", "type": "address" }, 
-                            { "internalType": "address", "name": "tokenOut", "type": "address" }, 
-                            { "internalType": "uint24", "name": "fee", "type": "uint24" }, 
-                            { "internalType": "address", "name": "recipient", "type": "address" }, 
-                            { "internalType": "uint256", "name": "deadline", "type": "uint256" }, 
-                            { "internalType": "uint256", "name": "amountIn", "type": "uint256" }, 
-                            { "internalType": "uint256", "name": "amountOutMinimum", "type": "uint256" }, 
-                            { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
-                        ]
-                    }
-                ],
-                "outputs": [
-                    { "internalType": "uint256", "name": "amountOut", "type": "uint256" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "mint",
-                "stateMutability": "payable",
-                "inputs": [
-                    {
-                        "internalType": "tuple",
-                        "name": "params",
-                        "type": "tuple",
-                        "components": [
-                            { "internalType": "address", "name": "token0", "type": "address" },
-                            { "internalType": "address", "name": "token1", "type": "address" },
-                            { "internalType": "uint24", "name": "fee", "type": "uint24" },
-                            { "internalType": "int24", "name": "tickLower", "type": "int24" },
-                            { "internalType": "int24", "name": "tickUpper", "type": "int24" },
-                            { "internalType": "uint256", "name": "amount0Desired", "type": "uint256" },
-                            { "internalType": "uint256", "name": "amount1Desired", "type": "uint256" },
-                            { "internalType": "uint256", "name": "amount0Min", "type": "uint256" },
-                            { "internalType": "uint256", "name": "amount1Min", "type": "uint256" },
-                            { "internalType": "address", "name": "recipient", "type": "address" },
-                            { "internalType": "uint256", "name": "deadline", "type": "uint256" }
-                        ]
-                    }
-                ],
-                "outputs": [
-                    { "internalType": "uint256", "name": "tokenId", "type": "uint256" },
-                    { "internalType": "uint128", "name": "liquidity", "type": "uint128" },
-                    { "internalType": "uint256", "name": "amount0", "type": "uint256" },
-                    { "internalType": "uint256", "name": "amount1", "type": "uint256" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "sendAndDeploy",
-                "stateMutability": "payable",
-                "inputs": [
-                    { "internalType": "address payable", "name": "to", "type": "address" },
-                    { "internalType": "uint256", "name": "amount", "type": "uint256" },
-                    { "internalType": "bytes", "name": "creationCode", "type": "bytes" }
-                ],
-                "outputs": []
-            },
-            {
-                "type": "function",
-                "name": "createGame",
-                "stateMutability": "payable",
-                "inputs": [
-                    { "name": "choice", "type": "uint8" }
-                ],
-                "outputs": [
-                    { "name": "gameId", "type": "uint256" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "getPlayerGameIds",
-                "stateMutability": "view",
-                "inputs": [
-                    { "name": "player", "type": "address" }
-                ],
-                "outputs": [
-                    { "name": "", "type": "uint256[]" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "games",
-                "stateMutability": "view",
-                "inputs": [
-                    { "name": "", "type": "uint256" }
-                ],
-                "outputs": [
-                    { "name": "player", "type": "address" },
-                    { "name": "wager", "type": "uint96" },
-                    { "name": "payout", "type": "uint96" },
-                    { "name": "requestId", "type": "uint256" },
-                    { "name": "choice", "type": "uint8" },
-                    { "name": "result", "type": "uint8" },
-                    { "name": "status", "type": "uint8" },
-                    { "name": "won", "type": "bool" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "claim",
-                "stateMutability": "nonpayable",
-                "inputs": [
-                    { "name": "gameId", "type": "uint256" }
-                ],
-                "outputs": []
-            },
-            {
-                "type": "function",
-                "name": "canRoll",
-                "stateMutability": "view",
-                "inputs": [
-                    { "name": "player", "type": "address" }
-                ],
-                "outputs": [
-                    { "name": "", "type": "bool" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "roll",
-                "stateMutability": "nonpayable",
-                "inputs": [],
-                "outputs": [
-                    { "name": "rollId", "type": "uint256" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "getPlayerRollIds",
-                "stateMutability": "view",
-                "inputs": [
-                    { "name": "player", "type": "address" }
-                ],
-                "outputs": [
-                    { "name": "", "type": "uint256[]" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "rolls",
-                "stateMutability": "view",
-                "inputs": [
-                    { "name": "", "type": "uint256" }
-                ],
-                "outputs": [
-                    { "name": "player", "type": "address" },
-                    { "name": "requestId", "type": "uint256" },
-                    { "name": "reward", "type": "uint8" },
-                    { "name": "amount", "type": "uint256" },
-                    { "name": "status", "type": "uint8" }
-                ]
-            },
-            {
-                "type": "function",
-                "name": "claim",
-                "stateMutability": "nonpayable",
-                "inputs": [],
-                "outputs": []
             }
         ]
 
-        self.REF_CODE = "W-p0XycS" # U can change it with yours.
+        self.WX1T_CONTRACT = {
+            "address": "0xe2ED17Ae5e68863E77899205a83A8f1E138c608f",
+            "abi": self.ERC20_ABI
+        }
+        self.USDT_CONTRACT = {
+            "address": "0xd127BA1f0EfA2c5c7d9e6E7339DBafe2A6b1EAeC",
+            "abi": self.ERC20_ABI
+        }
+
+        self.SWAP_CONTRACT = {
+            "address": "0x1BEC6C32bAA0881EA3f3Ec5e95d10EF8a252589B",
+            "abi": [
+                {
+                    "type": "function",
+                    "name": "exactInputSingle",
+                    "stateMutability": "payable",
+                    "inputs": [
+                        {
+                            "internalType": "struct ISwapRouter.ExactInputSingleParams",
+                            "name": "params",
+                            "type": "tuple",
+                            "components": [
+                                { "internalType": "address", "name": "tokenIn", "type": "address" }, 
+                                { "internalType": "address", "name": "tokenOut", "type": "address" }, 
+                                { "internalType": "uint24", "name": "fee", "type": "uint24" }, 
+                                { "internalType": "address", "name": "recipient", "type": "address" }, 
+                                { "internalType": "uint256", "name": "deadline", "type": "uint256" }, 
+                                { "internalType": "uint256", "name": "amountIn", "type": "uint256" }, 
+                                { "internalType": "uint256", "name": "amountOutMinimum", "type": "uint256" }, 
+                                { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
+                            ]
+                        }
+                    ],
+                    "outputs": [
+                        { "internalType": "uint256", "name": "amountOut", "type": "uint256" }
+                    ]
+                }
+            ]
+        }
+
+        self.MINT_CONTRACT = {
+            "address": "0x4505eEA72B4D215284305d794CCAc618cd5eA531",
+            "abi": [
+                {
+                    "type": "function",
+                    "name": "mint",
+                    "stateMutability": "payable",
+                    "inputs": [
+                        {
+                            "internalType": "tuple",
+                            "name": "params",
+                            "type": "tuple",
+                            "components": [
+                                { "internalType": "address", "name": "token0", "type": "address" },
+                                { "internalType": "address", "name": "token1", "type": "address" },
+                                { "internalType": "uint24", "name": "fee", "type": "uint24" },
+                                { "internalType": "int24", "name": "tickLower", "type": "int24" },
+                                { "internalType": "int24", "name": "tickUpper", "type": "int24" },
+                                { "internalType": "uint256", "name": "amount0Desired", "type": "uint256" },
+                                { "internalType": "uint256", "name": "amount1Desired", "type": "uint256" },
+                                { "internalType": "uint256", "name": "amount0Min", "type": "uint256" },
+                                { "internalType": "uint256", "name": "amount1Min", "type": "uint256" },
+                                { "internalType": "address", "name": "recipient", "type": "address" },
+                                { "internalType": "uint256", "name": "deadline", "type": "uint256" }
+                            ]
+                        }
+                    ],
+                    "outputs": [
+                        { "internalType": "uint256", "name": "tokenId", "type": "uint256" },
+                        { "internalType": "uint128", "name": "liquidity", "type": "uint128" },
+                        { "internalType": "uint256", "name": "amount0", "type": "uint256" },
+                        { "internalType": "uint256", "name": "amount1", "type": "uint256" }
+                    ]
+                }
+            ]
+        }
+
+        self.DEPLOY_CONTRACT = {
+            "address": "0x8364089f85CFc7Bb455f1c8F2D924568cE433f9F",
+            "payable": "0x34264ec130f9aD5Fc9aa20aB95e42067b1304B5a",
+            "abi": [
+                {
+                    "type": "function",
+                    "name": "sendAndDeploy",
+                    "stateMutability": "payable",
+                    "inputs": [
+                        { "internalType": "address payable", "name": "to", "type": "address" },
+                        { "internalType": "uint256", "name": "amount", "type": "uint256" },
+                        { "internalType": "bytes", "name": "creationCode", "type": "bytes" }
+                    ],
+                    "outputs": []
+                }
+            ]
+        }
+
+        self.DOMAINS_CONTRACT = {
+            "address": "0x3C24a4Ca84f0A4AC95BA4f063a8eEe2803225E9E",
+            "abi": [
+                {
+                    "type": "function", 
+                    "name": "MIN_REGISTRATION_DURATION", 
+                    "stateMutability": "view",
+                    "inputs": [], 
+                    "outputs": [
+                        { "name": "", "type": "uint256", "internalType": "uint256" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "available", 
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "label", "type": "string", "internalType": "string" }
+                    ], 
+                    "outputs": [
+                        { "name": "", "type": "bool", "internalType": "bool" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "commit", 
+                    "stateMutability": "nonpayable",
+                    "inputs": [
+                        { "name": "commitment", "type": "bytes32", "internalType": "bytes32" }
+                    ], 
+                    "outputs": []
+                },
+                {
+                    "type": "function", 
+                    "name": "commitments", 
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "", "type": "bytes32", "internalType": "bytes32" }
+                    ], 
+                    "outputs": [
+                        { "name": "", "type": "uint256", "internalType": "uint256" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "makeCommitment", 
+                    "stateMutability": "pure",
+                    "inputs": [
+                        {
+                            "name": "registration", 
+                            "type": "tuple", 
+                            "internalType": "struct IETHRegistrarController.Registration", 
+                            "components": [
+                                { "name": "label", "type": "string", "internalType": "string" }, 
+                                { "name": "owner", "type": "address", "internalType": "address" }, 
+                                { "name": "duration", "type": "uint256", "internalType": "uint256" }, 
+                                { "name": "secret", "type": "bytes32", "internalType": "bytes32" }, 
+                                { "name": "resolver", "type": "address", "internalType": "address" }, 
+                                { "name": "data", "type": "bytes[]", "internalType": "bytes[]" }, 
+                                { "name": "reverseRecord", "type": "uint8", "internalType": "uint8" }, 
+                                { "name": "referrer", "type": "bytes32", "internalType": "bytes32" }
+                            ]
+                        }
+                    ], 
+                    "outputs": [
+                        { "name": "commitment", "type": "bytes32", "internalType": "bytes32" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "maxCommitmentAge", 
+                    "stateMutability": "view",
+                    "inputs": [], 
+                    "outputs": [
+                        { "name": "", "type": "uint256", "internalType": "uint256" }
+                    ], 
+                },
+                {
+                    "type": "function", 
+                    "name": "minCommitmentAge",  
+                    "stateMutability": "view",
+                    "inputs": [], 
+                    "outputs": [
+                        { "name": "", "type": "uint256", "internalType": "uint256" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "register", 
+                    "stateMutability": "payable",
+                    "inputs": [
+                        {
+                            "name": "registration", 
+                            "type": "tuple", 
+                            "internalType": "struct IETHRegistrarController.Registration", 
+                            "components": [
+                                { "name": "label", "type": "string", "internalType": "string" }, 
+                                { "name": "owner", "type": "address", "internalType": "address" }, 
+                                { "name": "duration", "type": "uint256", "internalType": "uint256" }, 
+                                { "name": "secret", "type": "bytes32", "internalType": "bytes32" }, 
+                                { "name": "resolver", "type": "address", "internalType": "address" }, 
+                                { "name": "data", "type": "bytes[]", "internalType": "bytes[]" }, 
+                                { "name": "reverseRecord", "type": "uint8", "internalType": "uint8" }, 
+                                { "name": "referrer", "type": "bytes32", "internalType": "bytes32" }
+                            ]
+                        }
+                    ], 
+                    "outputs": []
+                },
+                {
+                    "type": "function", 
+                    "name": "renew", 
+                    "stateMutability": "payable",
+                    "inputs": [
+                        { "name": "label", "type": "string", "internalType": "string" }, 
+                        { "name": "duration", "type": "uint256", "internalType": "uint256" }, 
+                        { "name": "referrer", "type": "bytes32", "internalType": "bytes32" }
+                    ], 
+                    "outputs": []
+                },
+                {
+                    "type": "function", 
+                    "name": "rentPrice", 
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "label", "type": "string", "internalType": "string" }, 
+                        { "name": "duration", "type": "uint256", "internalType": "uint256" }
+                    ], 
+                    "outputs": [
+                        {
+                            "name": "price", 
+                            "type": "tuple", 
+                            "internalType": "struct IPriceOracle.Price", 
+                            "components": [
+                                { "name": "base", "type": "uint256", "internalType": "uint256" }, 
+                                { "name": "premium", "type": "uint256", "internalType": "uint256" }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "valid", 
+                    "stateMutability": "pure",
+                    "inputs": [
+                        { "name": "label", "type": "string", "internalType": "string" }
+                    ], 
+                    "outputs": [
+                        { "name": "", "type": "bool", "internalType": "bool" }
+                    ]
+                }
+            ]
+        }
+
+        self.COINFLIP_CONTRACT = {
+            "address": "0xaD18687e69523e112d08dd7226ABa3269DA61444",
+            "abi": [
+                {
+                    "type": "function",
+                    "name": "createGame",
+                    "stateMutability": "payable",
+                    "inputs": [
+                        { "name": "choice", "type": "uint8" }
+                    ],
+                    "outputs": [
+                        { "name": "gameId", "type": "uint256" }
+                    ]
+                },
+                {
+                    "type": "function",
+                    "name": "getPlayerGameIds",
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "player", "type": "address" }
+                    ],
+                    "outputs": [
+                        { "name": "", "type": "uint256[]" }
+                    ]
+                },
+                {
+                    "type": "function",
+                    "name": "games",
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "", "type": "uint256" }
+                    ],
+                    "outputs": [
+                        { "name": "player", "type": "address" },
+                        { "name": "wager", "type": "uint96" },
+                        { "name": "payout", "type": "uint96" },
+                        { "name": "requestId", "type": "uint256" },
+                        { "name": "choice", "type": "uint8" },
+                        { "name": "result", "type": "uint8" },
+                        { "name": "status", "type": "uint8" },
+                        { "name": "won", "type": "bool" }
+                    ]
+                },
+                {
+                    "type": "function",
+                    "name": "claim",
+                    "stateMutability": "nonpayable",
+                    "inputs": [
+                        { "name": "gameId", "type": "uint256" }
+                    ],
+                    "outputs": []
+                }
+            ]
+        }
+
+        self.ROLL_CONTRACT = {
+            "address": "0xE6404cA54d11b6d7972e8a48fa522A3AF9F8a596",
+            "abi": [
+                {
+                    "type": "function",
+                    "name": "canRoll",
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "player", "type": "address" }
+                    ],
+                    "outputs": [
+                        { "name": "", "type": "bool" }
+                    ]
+                },
+                {
+                    "type": "function",
+                    "name": "roll",
+                    "stateMutability": "nonpayable",
+                    "inputs": [],
+                    "outputs": [
+                        { "name": "rollId", "type": "uint256" }
+                    ]
+                },
+                {
+                    "type": "function",
+                    "name": "getPlayerRollIds",
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "player", "type": "address" }
+                    ],
+                    "outputs": [
+                        { "name": "", "type": "uint256[]" }
+                    ]
+                },
+                {
+                    "type": "function",
+                    "name": "rolls",
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "", "type": "uint256" }
+                    ],
+                    "outputs": [
+                        { "name": "player", "type": "address" },
+                        { "name": "requestId", "type": "uint256" },
+                        { "name": "reward", "type": "uint8" },
+                        { "name": "amount", "type": "uint256" },
+                        { "name": "status", "type": "uint8" }
+                    ]
+                },
+                {
+                    "type": "function",
+                    "name": "claim",
+                    "stateMutability": "nonpayable",
+                    "inputs": [],
+                    "outputs": []
+                }
+            ]
+        }
+
+        self.JACKPOT_CONTRACT = {
+            "address": "0xcca1814d2c29fabc96210213110f3f13764dc48e",
+            "abi": [
+                {
+                    "type": "function", 
+                    "name": "currentGameId", 
+                    "stateMutability": "view", 
+                    "inputs": [], 
+                    "outputs": [
+                        { "name": "", "type": "uint256" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "games", 
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "", "type": "uint256" }
+                    ],
+                    "outputs": [
+                        { "name": "openedAt", "type": "uint256" },
+                        { "name": "closesAt", "type": "uint256" },
+                        { "name": "drawnAt", "type": "uint256" },
+                        { "name": "requestId", "type": "uint256" },
+                        { "name": "winner", "type": "address" },
+                        { "name": "status", "type": "uint8" },
+                        { "name": "claimed", "type": "bool" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "getWinnerGameIds", 
+                    "stateMutability": "view", 
+                    "inputs": [
+                        { "name": "player", "type": "address" }
+                    ], 
+                    "outputs": [
+                        { "name": "", "type": "uint256[]" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "canEnter", 
+                    "stateMutability": "view", 
+                    "inputs": [
+                        { "name": "player", "type": "address" }
+                    ], 
+                    "outputs": [
+                        { "name": "", "type": "bool" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "hasEntered", 
+                    "stateMutability": "view", 
+                    "inputs": [
+                        { "name": "gameId", "type": "uint256" }, 
+                        { "name": "player", "type": "address" }
+                    ], 
+                    "outputs": [
+                        { "name": "", "type": "bool" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "PRIZE", 
+                    "stateMutability": "view", 
+                    "inputs": [], 
+                    "outputs": [
+                        { "name": "", "type": "uint256" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "paused", 
+                    "stateMutability": "view", 
+                    "inputs": [], 
+                    "outputs": [
+                        { "name": "", "type": "bool" }
+                    ]
+                },
+                {
+                    "type": "function", 
+                    "name": "enter", 
+                    "stateMutability": "nonpayable", 
+                    "inputs": [], 
+                    "outputs": []
+                },
+                {
+                    "type": "function", 
+                    "name": "claim", 
+                    "stateMutability": "nonpayable", 
+                    "inputs": [
+                        { "name": "gameId", "type": "uint256" }
+                    ], 
+                    "outputs": []
+                }
+            ]
+        }
+
+        self.REF_CODE = "W-p0XycS"
 
         self.USE_PROXY = False
         self.ROTATE_PROXY = False
@@ -954,11 +1234,7 @@ class X1:
                     address
                 )
             else:
-                contract_address = web3.to_checksum_address(asset)
-                token_contract = web3.eth.contract(
-                    address=contract_address,
-                    abi=self.CONTRACT_ABI
-                )
+                token_contract = self._token_contract(web3, asset)
 
                 balance = await asyncio.to_thread(
                     token_contract.functions.balanceOf(address).call
@@ -1012,24 +1288,72 @@ class X1:
                 )
             await asyncio.sleep(2 ** attempt)
         raise Exception("Transaction Receipt Not Found After Maximum Retries")
+
+    def _contract(self, web3: Web3, contract):
+        contract_address = web3.to_checksum_address(contract["address"])
+        return web3.eth.contract(address=contract_address, abi=contract["abi"])
+
+    def _token_contract(self, web3: Web3, address):
+        contract_address = web3.to_checksum_address(address)
+        return web3.eth.contract(address=contract_address, abi=self.ERC20_ABI)
+
+    async def _fee_params(self, web3: Web3, address: str):
+        latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
+        base_fee = latest_block["baseFeePerGas"]
+        max_priority_fee = web3.to_wei(1, "gwei")
+        max_fee = base_fee + max_priority_fee
+        nonce = await asyncio.to_thread(web3.eth.get_transaction_count, address, "pending")
+        chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+        return int(max_fee), int(max_priority_fee), nonce, chain_id
+
+    async def _send_fn(self, web3: Web3, private_key: str, address: str, fn, value=0):
+        try:
+            estimate_tx = {"from": address}
+            if value:
+                estimate_tx["value"] = value
+            estimated_gas = await asyncio.to_thread(fn.estimate_gas, estimate_tx)
+            max_fee, max_priority_fee, nonce, chain_id = await self._fee_params(web3, address)
+            build_tx = {
+                "from": address,
+                "gas": int(estimated_gas * 1.2),
+                "maxFeePerGas": max_fee,
+                "maxPriorityFeePerGas": max_priority_fee,
+                "nonce": nonce,
+                "chainId": chain_id,
+            }
+            if value:
+                build_tx["value"] = value
+            tx = await asyncio.to_thread(fn.build_transaction, build_tx)
+            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, tx)
+            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+            return {"tx_hash": tx_hash, "block_number": receipt.blockNumber, "receipt": receipt}
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    def _log_tx(self, tx):
+        explorer = self.API_URL["explorer"]
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {tx['block_number']} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {tx['tx_hash']} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx['tx_hash']} {Style.RESET_ALL}"
+        )
     
     async def perform_transfer(self, web3: Web3, private_key: str, address: str, recipient: str, amount: Decimal):
         try:
             amount_to_wei = web3.to_wei(amount, "ether")
 
-            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-            base_fee = latest_block["baseFeePerGas"]
-
-            max_priority_fee = web3.to_wei(1, "gwei")
-            max_fee = base_fee + max_priority_fee
-
-            nonce = await asyncio.to_thread(
-                web3.eth.get_transaction_count,
-                address,
-                "pending"
-            )
-
-            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
+            max_fee, max_priority_fee, nonce, chain_id = await self._fee_params(web3, address)
             
             transfer_tx = {
                 "from": web3.to_checksum_address(address),
@@ -1093,9 +1417,8 @@ class X1:
         
     async def perform_swap(self, web3: Web3, private_key: str, address: str, pools: dict, amount: Decimal):
         try:
-            token_in = web3.to_checksum_address(self.CONTRACT_ADDRESS['WX1T'])
-            token_out = web3.to_checksum_address(self.CONTRACT_ADDRESS['USDT'])
-            router = web3.to_checksum_address(self.CONTRACT_ROUTER['swap'])
+            token_in = web3.to_checksum_address(self.WX1T_CONTRACT["address"])
+            token_out = web3.to_checksum_address(self.USDT_CONTRACT["address"])
 
             deadline = int(time.time()) + 600
 
@@ -1114,52 +1437,15 @@ class X1:
                 "sqrtPriceLimitX96": 0
             }
 
-            router_contract = web3.eth.contract(address=router, abi=self.CONTRACT_ABI)
+            contract = self._contract(web3, self.SWAP_CONTRACT)
             
-            swap_func = router_contract.functions.exactInputSingle(swap_params)
-
-            estimated_gas = await asyncio.to_thread(
-                swap_func.estimate_gas,
-                {
-                    "from": address,
-                    "value": amount_in
-                }
+            return await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.exactInputSingle(swap_params), 
+                value=amount_in
             )
-
-            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-            base_fee = latest_block["baseFeePerGas"]
-
-            max_priority_fee = web3.to_wei(1, "gwei")
-            max_fee = base_fee + max_priority_fee
-
-            nonce = await asyncio.to_thread(
-                web3.eth.get_transaction_count,
-                address,
-                "pending"
-            )
-
-            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-
-            swap_tx = await asyncio.to_thread(
-                swap_func.build_transaction,
-                {
-                    "from": address,
-                    "value": amount_in,
-                    "gas": int(estimated_gas * 1.2),
-                    "maxFeePerGas": int(max_fee),
-                    "maxPriorityFeePerGas": int(max_priority_fee),
-                    "nonce": nonce,
-                    "chainId": chain_id,
-                }
-            )
-
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, swap_tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
-
-            return {
-                "tx_hash": tx_hash, 
-                "block_number": receipt.blockNumber
-            }
         except Exception as e:
             self.log(
                 f"{Fore.BLUE+Style.BRIGHT}   Message :{Style.RESET_ALL}"
@@ -1169,69 +1455,25 @@ class X1:
         
     async def approving_token(self, web3: Web3, private_key: str, address: str, asset: str, spender: str, amount_to_wei: int):
         try:
-            token_contract = web3.eth.contract(address=asset, abi=self.CONTRACT_ABI)
+            token_contract = self._token_contract(web3, asset)
             allowance = await asyncio.to_thread(
                 token_contract.functions.allowance(address, spender).call
             )
 
             if allowance < amount_to_wei:
-                approve_func = token_contract.functions.approve(spender, 2**256 - 1)
-
-                estimated_gas = await asyncio.to_thread(
-                    approve_func.estimate_gas,
-                    {
-                        "from": address
-                    }
+                tx = await self._send_fn(
+                    web3, 
+                    private_key, 
+                    address, 
+                    token_contract.functions.approve(spender, 2**256 - 1)
                 )
-
-                latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-                base_fee = latest_block["baseFeePerGas"]
-
-                max_priority_fee = web3.to_wei(1, "gwei")
-                max_fee = base_fee + max_priority_fee
-
-                nonce = await asyncio.to_thread(
-                    web3.eth.get_transaction_count,
-                    address,
-                    "pending"
-                )
-
-                chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-
-                approve_tx = await asyncio.to_thread(
-                    approve_func.build_transaction,
-                    {
-                        "from": address,
-                        "gas": int(estimated_gas * 1.2),
-                        "maxFeePerGas": int(max_fee),
-                        "maxPriorityFeePerGas": int(max_priority_fee),
-                        "nonce": nonce,
-                        "chainId": chain_id,
-                    }
-                )
-
-                tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, approve_tx)
-                receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
-
-                block_number = receipt.blockNumber
-                explorer = self.API_URL["explorer"]
+                if not tx: raise Exception("Approve Transaction Failed")
 
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
                     f"{Fore.GREEN+Style.BRIGHT} Token Approved {Style.RESET_ALL}"
                 )
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-                )
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-                )
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-                )
+                self._log_tx(tx)
                 
                 await asyncio.sleep(random.uniform(3.0, 5.0))
 
@@ -1241,9 +1483,8 @@ class X1:
         
     async def perform_add_liquidity(self, web3: Web3, private_key: str, address: str, pools: dict, usdt_balance: float):
         try:
-            token0 = web3.to_checksum_address(self.CONTRACT_ADDRESS['USDT'])
-            token1 = web3.to_checksum_address(self.CONTRACT_ADDRESS['WX1T'])
-            router = web3.to_checksum_address(self.CONTRACT_ROUTER['mint'])
+            token0 = web3.to_checksum_address(self.USDT_CONTRACT["address"])
+            token1 = web3.to_checksum_address(self.WX1T_CONTRACT["address"])
 
             amount1_desired = web3.to_wei(self.LIQUIDITY_AMOUNT, "ether")
 
@@ -1262,7 +1503,7 @@ class X1:
                 )
                 return False
 
-            await self.approving_token(web3, private_key, address, token0, router, amount0_desired)
+            await self.approving_token(web3, private_key, address, token0, self.MINT_CONTRACT["address"], amount0_desired)
 
             deadline = int(time.time()) + 600
 
@@ -1280,52 +1521,15 @@ class X1:
                 "deadline": deadline
             }
 
-            router_contract = web3.eth.contract(address=router, abi=self.CONTRACT_ABI)
-            
-            mint_func = router_contract.functions.mint(mint_params)
+            contract = self._contract(web3, self.MINT_CONTRACT)
 
-            estimated_gas = await asyncio.to_thread(
-                mint_func.estimate_gas,
-                {
-                    "from": address,
-                    "value": amount1_desired
-                }
+            return await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.mint(mint_params), 
+                value=amount1_desired
             )
-
-            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-            base_fee = latest_block["baseFeePerGas"]
-
-            max_priority_fee = web3.to_wei(1, "gwei")
-            max_fee = base_fee + max_priority_fee
-
-            nonce = await asyncio.to_thread(
-                web3.eth.get_transaction_count,
-                address,
-                "pending"
-            )
-
-            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-
-            mint_tx = await asyncio.to_thread(
-                mint_func.build_transaction,
-                {
-                    "from": address,
-                    "value": amount1_desired,
-                    "gas": int(estimated_gas * 1.2),
-                    "maxFeePerGas": int(max_fee),
-                    "maxPriorityFeePerGas": int(max_priority_fee),
-                    "nonce": nonce,
-                    "chainId": chain_id,
-                }
-            )
-
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, mint_tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
-
-            return {
-                "tx_hash": tx_hash, 
-                "block_number": receipt.blockNumber
-            }
         except Exception as e:
             self.log(
                 f"{Fore.BLUE+Style.BRIGHT}   Message :{Style.RESET_ALL}"
@@ -1335,8 +1539,7 @@ class X1:
         
     async def perform_deploy_token(self, web3: Web3, private_key: str, address: str, token_params: dict):
         try:
-            payable = web3.to_checksum_address(self.CONTRACT_ROUTER['payable']) 
-            router = web3.to_checksum_address(self.CONTRACT_ROUTER['deploy'])
+            payable = web3.to_checksum_address(self.DEPLOY_CONTRACT["payable"])
 
             amount_to_wei = web3.to_wei(self.DEPLOY_AMOUNT, "ether")
 
@@ -1344,48 +1547,19 @@ class X1:
 
             creation_code_bytes = web3.to_bytes(hexstr=creation_code)
 
-            router_contract = web3.eth.contract(address=router, abi=self.CONTRACT_ABI)
+            contract = self._contract(web3, self.DEPLOY_CONTRACT)
 
-            deploy_func = router_contract.functions.sendAndDeploy(payable, amount_to_wei, creation_code_bytes)
-
-            estimated_gas = await asyncio.to_thread(
-                deploy_func.estimate_gas,
-                {
-                    "from": address,
-                    "value": amount_to_wei
-                }
+            tx = await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.sendAndDeploy(payable, amount_to_wei, creation_code_bytes), 
+                value=amount_to_wei
             )
+            if not tx: return None
 
-            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-            base_fee = latest_block["baseFeePerGas"]
-
-            max_priority_fee = web3.to_wei(1, "gwei")
-            max_fee = base_fee + max_priority_fee
-
-            nonce = await asyncio.to_thread(
-                web3.eth.get_transaction_count,
-                address,
-                "pending"
-            )
-
-            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-
-            deploy_tx = await asyncio.to_thread(
-                deploy_func.build_transaction,
-                {
-                    "from": address,
-                    "value": amount_to_wei,
-                    "gas": int(estimated_gas * 1.2),
-                    "maxFeePerGas": int(max_fee),
-                    "maxPriorityFeePerGas": int(max_priority_fee),
-                    "nonce": nonce,
-                    "chainId": chain_id,
-                }
-            )
-
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, deploy_tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
-
+            tx_hash = tx["tx_hash"]
+            receipt = tx["receipt"]
             token_address = web3.to_checksum_address(receipt["logs"][1]["address"])
 
             return {
@@ -1411,52 +1585,22 @@ class X1:
                 ]
             )
 
-            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['coinflip'])
+            contract = self._contract(web3, self.COINFLIP_CONTRACT)
 
-            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
-
-            coinflip_func = token_contract.functions.createGame(choice["id"])
-
-            estimated_gas = await asyncio.to_thread(
-                coinflip_func.estimate_gas,
-                {
-                    "from": address,
-                    "value": amount_to_wei
-                }
+            tx = await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.createGame(choice["id"]), 
+                value=amount_to_wei
             )
+            if not tx: return None
 
-            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-            base_fee = latest_block["baseFeePerGas"]
-
-            max_priority_fee = web3.to_wei(1, "gwei")
-            max_fee = base_fee + max_priority_fee
-
-            nonce = await asyncio.to_thread(
-                web3.eth.get_transaction_count,
-                address,
-                "pending"
-            )
-
-            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-
-            coinflip_tx = await asyncio.to_thread(
-                coinflip_func.build_transaction,
-                {
-                    "from": address,
-                    "value": amount_to_wei,
-                    "gas": int(estimated_gas * 1.2),
-                    "maxFeePerGas": int(max_fee),
-                    "maxPriorityFeePerGas": int(max_priority_fee),
-                    "nonce": nonce,
-                    "chainId": chain_id,
-                }
-            )
-
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, coinflip_tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+            tx_hash = tx["tx_hash"]
+            receipt = tx["receipt"]
 
             game_ids = await asyncio.to_thread(
-                token_contract.functions.getPlayerGameIds(address).call
+                contract.functions.getPlayerGameIds(address).call
             )
             if not game_ids:
                 raise Exception("No Games Found for Player")
@@ -1464,7 +1608,7 @@ class X1:
             game_id = max(game_ids)
 
             game_data = await asyncio.to_thread(
-                token_contract.functions.games(game_id).call
+                contract.functions.games(game_id).call
             )
             if game_data[0].lower() != address.lower():
                 raise Exception(
@@ -1499,16 +1643,14 @@ class X1:
 
     async def coinflip_game_result(self, web3: Web3, address: str, game_id: int, timeout: int = 30, poll_interval: float = 1.0):
         try:
-            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['coinflip'])
-
-            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+            contract = self._contract(web3, self.COINFLIP_CONTRACT)
 
             deadline = time.time() + timeout
             coinflip_res = None
 
             while True:
                 coinflip_res = await asyncio.to_thread(
-                    token_contract.functions.games(game_id).call
+                    contract.functions.games(game_id).call
                 )
                 if coinflip_res[6] >= 2:
                     break
@@ -1547,53 +1689,13 @@ class X1:
 
     async def claim_coinflip_reward(self, web3: Web3, private_key: str, address: str, game_id: int):
         try:
-            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['coinflip'])
-
-            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
-
-            claim_func = token_contract.functions.claim(game_id)
-
-            estimated_gas = await asyncio.to_thread(
-                claim_func.estimate_gas,
-                {
-                    "from": address
-                }
+            contract = self._contract(web3, self.COINFLIP_CONTRACT)
+            return await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.claim(game_id)
             )
-
-            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-            base_fee = latest_block["baseFeePerGas"]
-
-            max_priority_fee = web3.to_wei(1, "gwei")
-            max_fee = base_fee + max_priority_fee
-
-            nonce = await asyncio.to_thread(
-                web3.eth.get_transaction_count,
-                address,
-                "pending"
-            )
-
-            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-
-            claim_tx = await asyncio.to_thread(
-                claim_func.build_transaction,
-                {
-                    "from": address,
-                    "gas": int(estimated_gas * 1.2),
-                    "maxFeePerGas": int(max_fee),
-                    "maxPriorityFeePerGas": int(max_priority_fee),
-                    "nonce": nonce,
-                    "chainId": chain_id,
-                }
-            )
-
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, claim_tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
-
-            return {
-                "tx_hash": tx_hash, 
-                "block_number": receipt.blockNumber
-            }
-
         except Exception as e:
             self.log(
                 f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
@@ -1603,12 +1705,10 @@ class X1:
 
     async def daily_roll_status(self, web3: Web3, address: str):
         try:
-            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['roll'])
-            
-            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+            contract = self._contract(web3, self.ROLL_CONTRACT)
 
             can_roll = await asyncio.to_thread(
-                token_contract.functions.canRoll(address).call
+                contract.functions.canRoll(address).call
             )
 
             return can_roll
@@ -1621,50 +1721,21 @@ class X1:
 
     async def perform_daily_roll(self, web3: Web3, private_key: str, address: str):
         try:
-            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['roll'])
+            contract = self._contract(web3, self.ROLL_CONTRACT)
 
-            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
-
-            roll_func = token_contract.functions.roll()
-
-            estimated_gas = await asyncio.to_thread(
-                roll_func.estimate_gas,
-                {
-                    "from": address
-                }
+            tx = await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.roll()
             )
+            if not tx: return None
 
-            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-            base_fee = latest_block["baseFeePerGas"]
-
-            max_priority_fee = web3.to_wei(1, "gwei")
-            max_fee = base_fee + max_priority_fee
-
-            nonce = await asyncio.to_thread(
-                web3.eth.get_transaction_count,
-                address,
-                "pending"
-            )
-
-            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-
-            roll_tx = await asyncio.to_thread(
-                roll_func.build_transaction,
-                {
-                    "from": address,
-                    "gas": int(estimated_gas * 1.2),
-                    "maxFeePerGas": int(max_fee),
-                    "maxPriorityFeePerGas": int(max_priority_fee),
-                    "nonce": nonce,
-                    "chainId": chain_id,
-                }
-            )
-
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, roll_tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
+            tx_hash = tx["tx_hash"]
+            receipt = tx["receipt"]
 
             roll_ids = await asyncio.to_thread(
-                token_contract.functions.getPlayerRollIds(address).call
+                contract.functions.getPlayerRollIds(address).call
             )
             if not roll_ids:
                 raise Exception("No Rolls Found for Player")
@@ -1672,7 +1743,7 @@ class X1:
             roll_id = max(roll_ids)
 
             roll_data = await asyncio.to_thread(
-                token_contract.functions.rolls(roll_id).call
+                contract.functions.rolls(roll_id).call
             )
             if roll_data[0].lower() != address.lower():
                 raise Exception(
@@ -1701,16 +1772,14 @@ class X1:
         
     async def daily_roll_result(self, web3: Web3, address: str, roll_id: int, timeout: int = 30, poll_interval: float = 1.0):
         try:
-            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['roll'])
-            
-            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
+            contract = self._contract(web3, self.ROLL_CONTRACT)
 
             deadline = time.time() + timeout
             roll_res = None
 
             while True:
                 roll_res = await asyncio.to_thread(
-                    token_contract.functions.rolls(roll_id).call
+                    contract.functions.rolls(roll_id).call
                 )
                 if roll_res[4] >= 2:
                     break
@@ -1741,60 +1810,99 @@ class X1:
 
     async def claim_roll_reward(self, web3: Web3, private_key: str, address: str):
         try:
-            contract_address = web3.to_checksum_address(self.CONTRACT_ROUTER['roll'])
-
-            token_contract = web3.eth.contract(address=contract_address, abi=self.CONTRACT_ABI)
-
-            claim_func = token_contract.functions.claim()
-
-            estimated_gas = await asyncio.to_thread(
-                claim_func.estimate_gas,
-                {
-                    "from": address
-                }
+            contract = self._contract(web3, self.ROLL_CONTRACT)
+            return await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.claim()
             )
-
-            latest_block = await asyncio.to_thread(web3.eth.get_block, "latest")
-            base_fee = latest_block["baseFeePerGas"]
-
-            max_priority_fee = web3.to_wei(1, "gwei")
-            max_fee = base_fee + max_priority_fee
-
-            nonce = await asyncio.to_thread(
-                web3.eth.get_transaction_count,
-                address,
-                "pending"
-            )
-
-            chain_id = await asyncio.to_thread(lambda: web3.eth.chain_id)
-
-            claim_tx = await asyncio.to_thread(
-                claim_func.build_transaction,
-                {
-                    "from": address,
-                    "gas": int(estimated_gas * 1.2),
-                    "maxFeePerGas": int(max_fee),
-                    "maxPriorityFeePerGas": int(max_priority_fee),
-                    "nonce": nonce,
-                    "chainId": chain_id,
-                }
-            )
-
-            tx_hash = await self.send_raw_transaction_with_retries(web3, private_key, claim_tx)
-            receipt = await self.wait_for_receipt_with_retries(web3, tx_hash)
-
-            return {
-                "tx_hash": tx_hash, 
-                "block_number": receipt.blockNumber
-            }
-
         except Exception as e:
             self.log(
                 f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
                 f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
             )
             return None
-        
+
+    async def jackpot_state(self, web3: Web3, address: str):
+        try:
+            contract = self._contract(web3, self.JACKPOT_CONTRACT)
+
+            game_id = await asyncio.to_thread(contract.functions.currentGameId().call)
+            game = await asyncio.to_thread(contract.functions.games(game_id).call)
+            paused = await asyncio.to_thread(contract.functions.paused().call)
+            prize = await asyncio.to_thread(contract.functions.PRIZE().call)
+            can_enter = await asyncio.to_thread(contract.functions.canEnter(address).call)
+            has_entered = await asyncio.to_thread(contract.functions.hasEntered(game_id, address).call)
+            winner_ids = await asyncio.to_thread(contract.functions.getWinnerGameIds(address).call)
+
+            claimables = []
+            for wid in winner_ids or []:
+                try:
+                    g = await asyncio.to_thread(contract.functions.games(wid).call)
+                    if not g[6]:
+                        claimables.append({"game_id": wid, "game": g})
+                except Exception:
+                    continue
+
+            return {
+                "game_id": game_id,
+                "game": game,
+                "status": game[5],
+                "paused": paused,
+                "prize": web3.from_wei(prize, "ether"),
+                "prize_wei": prize,
+                "can_enter": can_enter,
+                "has_entered": has_entered,
+                "winner_ids": list(winner_ids or []),
+                "claimables": claimables,
+            }
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def perform_jackpot_enter(self, web3: Web3, private_key: str, address: str):
+        try:
+            contract = self._contract(web3, self.JACKPOT_CONTRACT)
+            return await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.enter()
+            )
+        except Exception as e:
+            msg = str(e)
+            if "AlreadyEntered" in msg:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Already Entered This Game {Style.RESET_ALL}"
+                )
+                return {"already_entered": True}
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {msg} {Style.RESET_ALL}"
+            )
+            return None
+
+    async def claim_jackpot_reward(self, web3: Web3, private_key: str, address: str, game_id: int):
+        try:
+            contract = self._contract(web3, self.JACKPOT_CONTRACT)
+            return await self._send_fn(
+                web3, 
+                private_key, 
+                address, 
+                contract.functions.claim(game_id)
+            )
+        except Exception as e:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+            return None
+
     def print_question(self):
         while True:
             try:
@@ -2032,8 +2140,8 @@ class X1:
                 payload = {
                     "query": "\n    query PoolByTokens($a: String!, $b: String!) {\n      pools(\n        where: {\n          token0_in: [$a, $b]\n          token1_in: [$a, $b]\n        }\n        first: 5\n      ) {\n        id\n        feeTier\n        sqrtPrice\n        liquidity\n        tick\n        token0 { id symbol name decimals }\n        token1 { id symbol name decimals }\n        ticks(first: 500, orderBy: tickIdx, orderDirection: asc) {\n          tickIdx\n          liquidityNet\n          liquidityGross\n        }\n      }\n    }\n  ",
                     "variables": {
-                        "a": self.CONTRACT_ADDRESS["WX1T"].lower(),
-                        "b": self.CONTRACT_ADDRESS["USDT"].lower()
+                        "a": self.WX1T_CONTRACT["address"].lower(),
+                        "b": self.USDT_CONTRACT["address"].lower()
                     },
                     "operationName": "PoolByTokens"
                 }
@@ -2319,26 +2427,11 @@ class X1:
         transfer = await self.perform_transfer(web3, private_key, address, recipient, amount)
         if not transfer: return False
 
-        block_number = transfer["block_number"]
-        tx_hash = transfer["tx_hash"]
-        explorer = self.API_URL["explorer"]
-
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
             f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
         )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-        )
+        self._log_tx(transfer)
 
         await asyncio.sleep(3)
 
@@ -2375,26 +2468,11 @@ class X1:
         swap = await self.perform_swap(web3, private_key, address, pools, amount)
         if not swap: return False
 
-        block_number = swap["block_number"]
-        tx_hash = swap["tx_hash"]
-        explorer = self.API_URL["explorer"]
-
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
             f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
         )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-        )
+        self._log_tx(swap)
 
         await asyncio.sleep(3)
 
@@ -2424,7 +2502,7 @@ class X1:
             )
             return False
 
-        usdt_balance = await self.get_token_balance(web3, address, self.CONTRACT_ADDRESS["USDT"])
+        usdt_balance = await self.get_token_balance(web3, address, self.USDT_CONTRACT["address"])
         self.log(
             f"{Fore.GREEN+Style.BRIGHT}      2. {Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT}{usdt_balance} USDT{Style.RESET_ALL}"
@@ -2453,26 +2531,11 @@ class X1:
         add_lp = await self.perform_add_liquidity(web3, private_key, address, pools, usdt_balance)
         if not add_lp: return False
 
-        block_number = add_lp["block_number"]
-        tx_hash = add_lp["tx_hash"]
-        explorer = self.API_URL["explorer"]
-
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
             f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
         )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-        )
+        self._log_tx(add_lp)
 
         await asyncio.sleep(3)
 
@@ -2529,9 +2592,6 @@ class X1:
         if not deploy: return False
 
         token_address = deploy["token_address"]
-        block_number = deploy["block_number"]
-        tx_hash = deploy["tx_hash"]
-        explorer = self.API_URL["explorer"]
 
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
@@ -2541,18 +2601,7 @@ class X1:
             f"{Fore.BLUE+Style.BRIGHT}   Address  :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} {token_address} {Style.RESET_ALL}"
         )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-        )
+        self._log_tx(deploy)
 
         if not await self.save_contracts(address, token_name, token_address, proxy_url):
             return False
@@ -2590,15 +2639,12 @@ class X1:
         coinflip = await self.perform_coinflip_game(web3, private_key, address)
         if not coinflip: return False
 
-        block_number = coinflip["block_number"]
-        tx_hash = coinflip["tx_hash"]
         game_id = coinflip["game_id"]
         choice = coinflip["choice"]
         result = coinflip["result"]
         payout = coinflip["payout"]
         is_won = coinflip["is_won"]
         settled = coinflip["settled"]
-        explorer = self.API_URL["explorer"]
 
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
@@ -2620,18 +2666,7 @@ class X1:
             f"{Fore.BLUE+Style.BRIGHT}   Is Won   :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} {is_won} {Style.RESET_ALL}"
         )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-        )
-        self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-        )
+        self._log_tx(coinflip)
 
         if is_won and not settled:
             self.log(
@@ -2641,9 +2676,6 @@ class X1:
         elif is_won and settled:
             claim = await self.claim_coinflip_reward(web3, private_key, address, game_id)
             if claim:
-                block_number = claim["block_number"]
-                tx_hash = claim["tx_hash"]
-
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Reward   :{Style.RESET_ALL}"
                     f"{Fore.GREEN+Style.BRIGHT} Claimed {Style.RESET_ALL}"
@@ -2652,18 +2684,7 @@ class X1:
                     f"{Fore.BLUE+Style.BRIGHT}   Payout   :{Style.RESET_ALL}"
                     f"{Fore.WHITE+Style.BRIGHT} {payout} X1T {Style.RESET_ALL}"
                 )
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-                )
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-                )
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-                )
+                self._log_tx(claim)
 
         await asyncio.sleep(3)
 
@@ -2682,13 +2703,10 @@ class X1:
             roll = await self.perform_daily_roll(web3, private_key, address)
             if not roll: return False
                 
-            block_number = roll["block_number"]
-            tx_hash = roll["tx_hash"]
             roll_id = roll["roll_id"]
             reward = roll["reward"]
             label = roll["label"]
             settled = roll["settled"]
-            explorer = self.API_URL["explorer"]
 
             self.log(
                 f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
@@ -2702,18 +2720,7 @@ class X1:
                 f"{Fore.BLUE+Style.BRIGHT}   Result   :{Style.RESET_ALL}"
                 f"{Fore.WHITE+Style.BRIGHT} {label} {Style.RESET_ALL}"
             )
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-            )
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-            )
-            self.log(
-                f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-            )
+            self._log_tx(roll)
 
             if reward != 0 and not settled:
                 self.log(
@@ -2727,18 +2734,84 @@ class X1:
                         f"{Fore.BLUE+Style.BRIGHT}   Reward   :{Style.RESET_ALL}"
                         f"{Fore.GREEN+Style.BRIGHT} Claimed {Style.RESET_ALL}"
                     )
-                    self.log(
-                        f"{Fore.BLUE+Style.BRIGHT}   Block    :{Style.RESET_ALL}"
-                        f"{Fore.WHITE+Style.BRIGHT} {block_number} {Style.RESET_ALL}"
-                    )
-                    self.log(
-                        f"{Fore.BLUE+Style.BRIGHT}   Tx Hash  :{Style.RESET_ALL}"
-                        f"{Fore.WHITE+Style.BRIGHT} {tx_hash} {Style.RESET_ALL}"
-                    )
-                    self.log(
-                        f"{Fore.BLUE+Style.BRIGHT}   Explorer :{Style.RESET_ALL}"
-                        f"{Fore.WHITE+Style.BRIGHT} {explorer}{tx_hash} {Style.RESET_ALL}"
-                    )
+                    self._log_tx(claim)
+
+        await asyncio.sleep(3)
+
+        return True
+
+    async def process_perform_jackpot_game(self, web3: Web3, private_key: str, address: str):
+        state = await self.jackpot_state(web3, address)
+        if not state: return False
+
+        game_id = state["game_id"]
+        status = state["status"]
+        prize = state["prize"]
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Game Id  :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {game_id} {Style.RESET_ALL}"
+        )
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Prize    :{Style.RESET_ALL}"
+            f"{Fore.WHITE+Style.BRIGHT} {prize} X1T {Style.RESET_ALL}"
+        )
+
+        if state["paused"]:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Game Paused {Style.RESET_ALL}"
+            )
+            return False
+
+        for item in state["claimables"]:
+            wid = item["game_id"]
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Claim    :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} Game #{wid} {Style.RESET_ALL}"
+            )
+            claim = await self.claim_jackpot_reward(web3, private_key, address, wid)
+            if claim:
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Reward   :{Style.RESET_ALL}"
+                    f"{Fore.GREEN+Style.BRIGHT} Claimed {Style.RESET_ALL}"
+                )
+                self._log_tx(claim)
+                await asyncio.sleep(3)
+
+        if status == 2:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Drawing a Winner... {Style.RESET_ALL}"
+            )
+            return True
+
+        if state["has_entered"]:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Already Entered Game #{game_id} {Style.RESET_ALL}"
+            )
+            await asyncio.sleep(3)
+            return True
+
+        if not state["can_enter"]:
+            self.log(
+                f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} Entries Closed / Not Eligible {Style.RESET_ALL}"
+            )
+            return False
+
+        enter = await self.perform_jackpot_enter(web3, private_key, address)
+        if not enter: return False
+        if isinstance(enter, dict) and enter.get("already_entered"):
+            await asyncio.sleep(3)
+            return True
+
+        self.log(
+            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+            f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
+        )
+        self._log_tx(enter)
 
         await asyncio.sleep(3)
 
@@ -2805,7 +2878,7 @@ class X1:
                 )
                 continue
 
-            if type in ["nomis", "domains"]:
+            if type == "nomis":
                 self.log(
                     f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} Skipped {Style.RESET_ALL}"
@@ -2827,11 +2900,21 @@ class X1:
             elif type == "tc":
                 if not await self.process_perform_deploy_token(web3, private_key, address, proxy_url): continue
 
+            elif type == "domains":
+                self.log(
+                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} This feature is currently under development {Style.RESET_ALL}"
+                )
+                continue
+
             elif type == "coinflip":
                 if not await self.process_perform_coinflip_game(web3, private_key, address): continue
 
             elif type == "wheel":
                 if not await self.process_perform_daily_roll(web3, private_key, address): continue
+
+            elif type == "jackpot":
+                if not await self.process_perform_jackpot_game(web3, private_key, address): continue
 
             complete = await self.complete_quest(address, quest_id, proxy_url)
             if not complete: continue
