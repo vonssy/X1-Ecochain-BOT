@@ -73,7 +73,6 @@ class X1:
         self.API_URL = {
             "testnet": "https://testnet-api.x1eco.com",
             "nft": "https://nft-api.x1eco.com",
-            "dex": "https://ms.kod.af",
             "constructor": "https://api-constructor.x1ecochain.com",
             "rpc": "https://maculatus-rpc.x1eco.com/",
             "explorer": "https://maculatus-scan.x1eco.com/tx/",
@@ -83,6 +82,7 @@ class X1:
         self.SWAP_PERCENT = Decimal(os.getenv("SWAP_PERCENT", "10"))
         self.LIQUIDITY_AMOUNT = Decimal(os.getenv("LIQUIDITY_AMOUNT", "1"))
         self.COINFLIP_WAGER = Decimal(os.getenv("COINFLIP_WAGER", "1"))
+        self.SWAP_FEE_TIERS = [500, 3000, 10000]
         self.DEPLOY_AMOUNT = 100
         self.DOMAINS_DURATION = 31536000
         self.DOMAINS_COMMIT_BUFFER = 15
@@ -134,6 +134,70 @@ class X1:
             "address": "0xd127BA1f0EfA2c5c7d9e6E7339DBafe2A6b1EAeC",
             "abi": self.ERC20_ABI
         }
+
+        self.FACTORY_CONTRACT = {
+            "address": "0xb26C64B4d33399F1d9931B5fA77B2fcBd0AfD86B",
+            "abi": [
+                {
+                    "type": "function",
+                    "name": "getPool",
+                    "stateMutability": "view",
+                    "inputs": [
+                        { "name": "tokenA", "type": "address" },
+                        { "name": "tokenB", "type": "address" },
+                        { "name": "fee", "type": "uint24" }
+                    ],
+                    "outputs": [
+                        { "name": "pool", "type": "address" }
+                    ]
+                }
+            ]
+        }
+
+        self.POOL_ABI = [
+            {
+                "type": "function",
+                "name": "slot0",
+                "stateMutability": "view",
+                "inputs": [],
+                "outputs": [
+                    { "name": "sqrtPriceX96", "type": "uint160" },
+                    { "name": "tick", "type": "int24" },
+                    { "name": "observationIndex", "type": "uint16" },
+                    { "name": "observationCardinality", "type": "uint16" },
+                    { "name": "observationCardinalityNext", "type": "uint16" },
+                    { "name": "feeProtocol", "type": "uint8" },
+                    { "name": "unlocked", "type": "bool" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "liquidity",
+                "stateMutability": "view",
+                "inputs": [],
+                "outputs": [
+                    { "name": "", "type": "uint128" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "token0",
+                "stateMutability": "view",
+                "inputs": [],
+                "outputs": [
+                    { "name": "", "type": "address" }
+                ]
+            },
+            {
+                "type": "function",
+                "name": "token1",
+                "stateMutability": "view",
+                "inputs": [],
+                "outputs": [
+                    { "name": "", "type": "address" }
+                ]
+            }
+        ]
 
         self.SWAP_CONTRACT = {
             "address": "0x1BEC6C32bAA0881EA3f3Ec5e95d10EF8a252589B",
@@ -1125,30 +1189,53 @@ class X1:
             )
             return None
         
-    def calc_amount_out_min(self, pools: dict, token_in_symbol: str, amount_in_wei: int):
+    async def find_pool(self, web3: Web3, token_in_addr: str, token_out_addr: str):
+        factory = self._contract(web3, self.FACTORY_CONTRACT)
+        for fee in self.SWAP_FEE_TIERS:
+            try:
+                pool_addr = await asyncio.to_thread(
+                    factory.functions.getPool(token_in_addr, token_out_addr, fee).call
+                )
+                if int(pool_addr, 16) == 0:
+                    continue
+                pool = web3.eth.contract(
+                    address=web3.to_checksum_address(pool_addr),
+                    abi=self.POOL_ABI,
+                )
+                liquidity = await asyncio.to_thread(pool.functions.liquidity().call)
+                if liquidity == 0:
+                    continue
+                return pool, fee
+            except Exception:
+                continue
+        return None, None
+
+    async def quote_amount_out_min(self, web3: Web3, token_in_symbol: str, amount_in_wei: int):
         try:
-            pool = max(pools["data"]["pools"], key=lambda p: int(p["liquidity"]))
+            symbols = {"WX1T": self.WX1T_CONTRACT, "USDT": self.USDT_CONTRACT}
+            token_in_addr = web3.to_checksum_address(symbols[token_in_symbol]["address"])
+            token_out_addr = web3.to_checksum_address(
+                self.USDT_CONTRACT["address"] if token_in_symbol == "WX1T" else self.WX1T_CONTRACT["address"]
+            )
 
-            token0 = pool["token0"]["symbol"]
-            token1 = pool["token1"]["symbol"]
+            pool, fee = await self.find_pool(web3, token_in_addr, token_out_addr)
+            if pool is None:
+                raise Exception("No Liquid Pool Found for WX1T/USDT")
 
-            sqrt_price_x96 = Decimal(pool["sqrtPrice"])
-            fee_tier = Decimal(pool["feeTier"])
+            slot0 = await asyncio.to_thread(pool.functions.slot0().call)
+            token0 = await asyncio.to_thread(pool.functions.token0().call)
 
+            sqrt_price_x96 = Decimal(slot0[0])
             price = (sqrt_price_x96 ** 2) / (Decimal(2) ** 192)
 
             amount_in = Decimal(amount_in_wei)
 
-            if token_in_symbol == token0:
+            if token_in_addr.lower() == token0.lower():
                 amount_out = amount_in * price
-                
-            elif token_in_symbol == token1:
-                amount_out = amount_in / price
-                
             else:
-                raise ValueError("Token not found in pool")
+                amount_out = amount_in / price
 
-            fee_multiplier = Decimal(1) - (fee_tier / Decimal(1_000_000))
+            fee_multiplier = Decimal(1) - (Decimal(fee) / Decimal(1_000_000))
             amount_out *= fee_multiplier
 
             slippage_multiplier = Decimal(1) - (Decimal(2) / Decimal(100))
@@ -1156,11 +1243,14 @@ class X1:
 
             amount_out_wei = amount_out.to_integral_value(rounding=ROUND_DOWN)
 
-            return int(amount_out_wei)
+            return {
+                "amount_out_min": int(amount_out_wei),
+                "fee": fee,
+            }
         except Exception as e:
             raise Exception(f"Failed to Calculate Amount Out Min: {str(e)}")
         
-    async def perform_swap(self, web3: Web3, private_key: str, address: str, pools: dict, amount: Decimal):
+    async def perform_swap(self, web3: Web3, private_key: str, address: str, amount: Decimal):
         try:
             token_in = web3.to_checksum_address(self.WX1T_CONTRACT["address"])
             token_out = web3.to_checksum_address(self.USDT_CONTRACT["address"])
@@ -1169,16 +1259,16 @@ class X1:
 
             amount_in = web3.to_wei(amount, "ether")
 
-            amount_out_min_wei = self.calc_amount_out_min(pools, "WX1T", amount_in)
+            quote = await self.quote_amount_out_min(web3, "WX1T", amount_in)
 
             swap_params = {
                 "tokenIn": token_in,
                 "tokenOut": token_out,
-                "fee": 500,
+                "fee": quote["fee"],
                 "recipient": address,
                 "deadline": deadline,
                 "amountIn": amount_in,
-                "amountOutMinimum": amount_out_min_wei,
+                "amountOutMinimum": quote["amount_out_min"],
                 "sqrtPriceLimitX96": 0
             }
 
@@ -1226,14 +1316,15 @@ class X1:
         except Exception as e:
             raise Exception(f"Approving Token Contract Failed: {str(e)}")
         
-    async def perform_add_liquidity(self, web3: Web3, private_key: str, address: str, pools: dict, usdt_balance: float):
+    async def perform_add_liquidity(self, web3: Web3, private_key: str, address: str, usdt_balance: float):
         try:
             token0 = web3.to_checksum_address(self.USDT_CONTRACT["address"])
             token1 = web3.to_checksum_address(self.WX1T_CONTRACT["address"])
 
             amount1_desired = web3.to_wei(self.LIQUIDITY_AMOUNT, "ether")
 
-            amount0_desired = self.calc_amount_out_min(pools, "WX1T", amount1_desired)
+            quote = await self.quote_amount_out_min(web3, "WX1T", amount1_desired)
+            amount0_desired = quote["amount_out_min"]
             amount0_desired_from_wei = web3.from_wei(amount0_desired, "ether")
 
             self.log(
@@ -1255,7 +1346,7 @@ class X1:
             mint_params = {
                 "token0": token0,
                 "token1": token1,
-                "fee": 500,
+                "fee": quote["fee"],
                 "tickLower": -887270,
                 "tickUpper": 887270,
                 "amount0Desired": amount0_desired,
@@ -2437,44 +2528,6 @@ class X1:
 
         return None
     
-    async def pool_by_tokens(self, address: str, proxy_url=None, retries=5):
-        url = f"{self.API_URL['dex']}/subgraphs/name/uniswap-v3"
-        
-        for attempt in range(retries):
-            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
-            try:
-                headers = self.initialize_headers(address)
-                headers["Content-Type"] = "application/json"
-                headers["Origin"] = "https://ecodex.one"
-                headers["Referer"] = "https://ecodex.one/"
-                payload = {
-                    "query": "\n    query PoolByTokens($a: String!, $b: String!) {\n      pools(\n        where: {\n          token0_in: [$a, $b]\n          token1_in: [$a, $b]\n        }\n        first: 5\n      ) {\n        id\n        feeTier\n        sqrtPrice\n        liquidity\n        tick\n        token0 { id symbol name decimals }\n        token1 { id symbol name decimals }\n        ticks(first: 500, orderBy: tickIdx, orderDirection: asc) {\n          tickIdx\n          liquidityNet\n          liquidityGross\n        }\n      }\n    }\n  ",
-                    "variables": {
-                        "a": self.WX1T_CONTRACT["address"].lower(),
-                        "b": self.USDT_CONTRACT["address"].lower()
-                    },
-                    "operationName": "PoolByTokens"
-                }
-
-                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, json=payload, proxy=proxy, proxy_auth=proxy_auth) as response:
-                        await self.ensure_ok(response)
-                        return await response.json()
-            except (Exception, ClientResponseError) as e:
-                if attempt < retries - 1:
-                    await asyncio.sleep(5)
-                    continue
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Message  :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
-                )
-                self.log(
-                    f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} Failed to Fetch Pools {Style.RESET_ALL}"
-                )
-
-        return None
-    
     async def complete_quest(self, address: str, quest_id: str, proxy_url=None, retries=60):
         url = f"{self.API_URL['testnet']}/quests"
         
@@ -2753,9 +2806,6 @@ class X1:
             f"{Fore.WHITE+Style.BRIGHT} X1T to USDT {Style.RESET_ALL}"
         )
 
-        pools = await self.pool_by_tokens(address, proxy_url)
-        if not pools: return False
-
         balance = await self.get_token_balance(web3, address)
         self.log(
             f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}"
@@ -2775,7 +2825,7 @@ class X1:
             f"{Fore.WHITE+Style.BRIGHT} {amount} X1T ({self.SWAP_PERCENT}%) {Style.RESET_ALL}"
         )
 
-        swap = await self.perform_swap(web3, private_key, address, pools, amount)
+        swap = await self.perform_swap(web3, private_key, address, amount)
         if not swap: return False
 
         self.log(
@@ -2793,9 +2843,6 @@ class X1:
             f"{Fore.BLUE+Style.BRIGHT}   Pools    :{Style.RESET_ALL}"
             f"{Fore.WHITE+Style.BRIGHT} X1T/USDT {Style.RESET_ALL}"
         )
-
-        pools = await self.pool_by_tokens(address, proxy_url)
-        if not pools: return False
 
         self.log(f"{Fore.BLUE+Style.BRIGHT}   Balance  :{Style.RESET_ALL}")
 
@@ -2838,7 +2885,7 @@ class X1:
             )
             return False
 
-        add_lp = await self.perform_add_liquidity(web3, private_key, address, pools, usdt_balance)
+        add_lp = await self.perform_add_liquidity(web3, private_key, address, usdt_balance)
         if not add_lp: return False
 
         self.log(
