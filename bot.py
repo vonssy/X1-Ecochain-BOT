@@ -85,6 +85,7 @@ class X1:
         self.COINFLIP_WAGER = Decimal(os.getenv("COINFLIP_WAGER", "1"))
         self.DEPLOY_AMOUNT = 100
         self.DOMAINS_DURATION = 31536000
+        self.DOMAINS_COMMIT_BUFFER = 15
         self.DOMAINS_TLD = "x1eco"
 
         self.ERC20_ABI = [
@@ -1832,17 +1833,43 @@ class X1:
                     raise Exception("Commitment Not Found Onchain")
                 await asyncio.sleep(5)
 
-            ready_at = committed_at + int(min_age)
-            while time.time() < ready_at:
-                await asyncio.sleep(5)
-
-            reg_tx = await self._send_fn(
-                web3,
-                private_key,
-                address,
-                contract.functions.register(registration),
-                value=int(total),
-            )
+            ready_at = committed_at + int(min_age) + self.DOMAINS_COMMIT_BUFFER
+            reg_tx = None
+            for _ in range(3):
+                latest = await asyncio.to_thread(web3.eth.get_block, "latest")
+                waiting = False
+                while int(latest["timestamp"]) < ready_at:
+                    waiting = True
+                    print(
+                        f"{Fore.CYAN+Style.BRIGHT}[ Wait for{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} {self.format_seconds(ready_at - int(latest['timestamp']))} {Style.RESET_ALL}"
+                        f"{Fore.CYAN+Style.BRIGHT}]{Style.RESET_ALL}"
+                        f"{Fore.WHITE+Style.BRIGHT} | {Style.RESET_ALL}"
+                        f"{Fore.BLUE+Style.BRIGHT}Commitment age...{Style.RESET_ALL}",
+                        end="\r",
+                        flush=True
+                    )
+                    await asyncio.sleep(5)
+                    latest = await asyncio.to_thread(web3.eth.get_block, "latest")
+                if waiting:
+                    self.log(
+                        f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+                        f"{Fore.GREEN+Style.BRIGHT} Commitment matured {Style.RESET_ALL}"
+                    )
+                reg_tx = await self._send_fn(
+                    web3,
+                    private_key,
+                    address,
+                    contract.functions.register(registration),
+                    value=int(total),
+                )
+                if reg_tx:
+                    break
+                committed_at = await asyncio.to_thread(
+                    contract.functions.commitments(commitment).call
+                )
+                if not committed_at:
+                    raise Exception("Commitment Not Found Onchain")
             if not reg_tx:
                 raise Exception("Register Transaction Failed")
 
@@ -3157,7 +3184,7 @@ class X1:
         if not reg: return False
 
         self.log(
-            f"{Fore.BLUE+Style.BRIGHT}   Status   :{Style.RESET_ALL}"
+            f"{Fore.BLUE+Style.BRIGHT}   Register :{Style.RESET_ALL}"
             f"{Fore.GREEN+Style.BRIGHT} Success {Style.RESET_ALL}"
         )
         self._log_tx(reg)
